@@ -1,0 +1,3 @@
+C:/Users/cosea/CLionProjects/PrograIII_Proyect/cmake-build-debug/CMakeFiles/PrograIII_Proyect.dir
+C:/Users/cosea/CLionProjects/PrograIII_Proyect/cmake-build-debug/CMakeFiles/edit_cache.dir
+C:/Users/cosea/CLionProjects/PrograIII_Proyect/cmake-build-debug/CMakeFiles/rebuild_cache.dir
