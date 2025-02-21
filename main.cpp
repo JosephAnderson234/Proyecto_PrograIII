@@ -10,7 +10,7 @@
 #include <limits>
 using namespace std;
 
-// Constantes para formateo
+// Constantes para formateo 4 variables
 const int ANCHO = 80;         // Ancho para el recuadro de la sinopsis
 const int ANCHO_TITULO = 60;    // Ancho para justificar los titulos
 
