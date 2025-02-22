@@ -13,50 +13,54 @@ using namespace std;
 // Constantes para formateo
 const int ANCHO = 80;         // Ancho para el recuadro de la sinopsis
 const int ANCHO_TITULO = 60;    // Ancho para justificar los titulos
+int modoBusquedaGlobal = 1; // Variable Global para persistir busqueda 1. Titulo y sinopsis, 2: Etiqueta
 
-// Variable global para persistir el modo de busqueda:
-// 1: Titulo y sinopsis, 2: Tag.
-int globalModoBusqueda = 1;
 
-// ===================== PROTOTIPOS =====================
-struct Pelicula;
+// -------------------- ESTRUCTURA PELICULA --------------------
+struct Pelicula {
+    string titulo;
+    string sinopsis;
+    vector<string> etiquetas;
+    string fuente;     // Fuente de la sinopsis (columna 6 del CSV)
+    int likes = 0;     // 0 o 1; se permite un unico like.
+};
 
+// -------------------- DECLARACIONES DE FUNCIONES AUXILIARES --------------------
 string aMinusculas(const string &s);
 string recortar(const string &s);
 int contarComillas(const string &s);
 vector<string> parsearLineaCSV(const string &linea);
 vector<string> tokenizar(const string &s);
 string normalizarEspacios(const string &s);
-vector<Pelicula> cargarPeliculas(const string &nombreArchivo);
-unordered_map<string, set<Pelicula*>> construirIndice(const vector<Pelicula>& peliculas);
-unordered_map<string, set<Pelicula*>> construirIndiceTags(const vector<Pelicula>& peliculas);
 vector<string> justificarTexto(const string &texto, int ancho);
 void imprimirCuadro(const string &texto, int ancho);
 void imprimirTituloJustificado(const string &titulo);
-string extraerSnippet(const string &sinopsis, const string &consulta);
+string extraerFragmento(const string &sinopsis, const string &consulta);
+
+// Funciones de prueba de relevancia, cambio a futuro
 int calcularRelevanciaMode1(const Pelicula* pelicula, const vector<string>& tokens);
 int calcularRelevanciaMode2(const Pelicula* pelicula);
-vector<Pelicula*> recomendarPeliculas(const vector<Pelicula>& peliculas, const vector<Pelicula*>& liked);
+//------------------------------------------------
+
+// -------------------- DECLARACIONES DE FUNCIONES DE CARGA E INDICES --------------------
+vector<Pelicula> cargarPeliculas(const string &nombreArchivo);
+unordered_map<string, set<Pelicula*>> construirIndice(const vector<Pelicula>& peliculas);
+unordered_map<string, set<Pelicula*>> construirIndiceEtiquetas(const vector<Pelicula>& peliculas);
+vector<Pelicula*> recomendarPeliculas(const vector<Pelicula>& peliculas, const vector<Pelicula*>& gustadas);
+
+// -------------------- DECLARACIONES DE FUNCIONES DE IMPRESION Y MENU --------------------
+
 void mostrarListaTitulos(const vector<Pelicula*>& lista);
 // Ahora, el submenú de pelicula retorna un bool: true si el usuario desea volver directamente al menu principal.
-bool submenuPelicula(Pelicula* seleccionada, vector<Pelicula*>& liked, vector<Pelicula*>& verMasTarde);
-void manejarLista(const vector<Pelicula*>& lista, const string &nombreLista, vector<Pelicula*>& liked, vector<Pelicula*>& verMasTarde);
+bool submenuPelicula(Pelicula* seleccionada, vector<Pelicula*>& gustadas, vector<Pelicula*>& verMasTarde);
+void manejarLista(const vector<Pelicula*>& lista, const string &nombreLista, vector<Pelicula*>& gustadas, vector<Pelicula*>& verMasTarde);
 void manejarBusqueda(vector<Pelicula>& peliculas,
                      unordered_map<string, set<Pelicula*>> &indiceMode1,
-                     unordered_map<string, set<Pelicula*>> &indiceTag,
-                     vector<Pelicula*>& liked,
+                     unordered_map<string, set<Pelicula*>> &indiceEtiqueta,
+                     vector<Pelicula*>& gustadas,
                      vector<Pelicula*>& verMasTarde);
 
 // ===================== DEFINICIONES =====================
-
-// Estructura para almacenar la informacion de cada pelicula.
-struct Pelicula {
-    string titulo;
-    string sinopsis;
-    vector<string> tags;
-    string source;   // Fuente de la sinopsis (columna 6 del CSV)
-    int likes = 0;   // 0 o 1; se permite un unico like.
-};
 
 // Convierte una cadena a minusculas.
 string aMinusculas(const string &s) {
@@ -141,7 +145,7 @@ string normalizarEspacios(const string &s) {
 }
 
 // Carga las peliculas desde un CSV (respetando registros multilinea).
-// Se separan los tags usando coma como delimitador para conservar tags compuestos.
+// Se separan los etiquetas usando coma como delimitador para conservar etiquetas compuestos.
 vector<Pelicula> cargarPeliculas(const string &nombreArchivo) {
     vector<Pelicula> peliculas;
     ifstream archivo(nombreArchivo);
@@ -164,16 +168,16 @@ vector<Pelicula> cargarPeliculas(const string &nombreArchivo) {
         pelicula.titulo = columnas[1];
         pelicula.sinopsis = columnas[2];
         {
-            // Separar la columna de tags usando coma como delimitador.
+            // Separar la columna de etiquetas usando coma como delimitador.
             istringstream iss(columnas[3]);
-            string tag;
-            while (getline(iss, tag, ',')) {
-                tag = recortar(tag);
-                if (!tag.empty())
-                    pelicula.tags.push_back(tag);
+            string etiquetas;
+            while (getline(iss, etiquetas, ',')) {
+                etiquetas = recortar(etiquetas);
+                if (!etiquetas.empty())
+                    pelicula.etiquetas.push_back(etiquetas);
             }
         }
-        pelicula.source = columnas[5]; // Fuente de la sinopsis.
+        pelicula.fuente = columnas[5]; // Fuente de la sinopsis.
         peliculas.push_back(pelicula);
     }
     archivo.close();
@@ -194,16 +198,16 @@ unordered_map<string, set<Pelicula*>> construirIndice(const vector<Pelicula>& pe
     return indice;
 }
 
-// Construye un indice para busquedas por tag.
-unordered_map<string, set<Pelicula*>> construirIndiceTags(const vector<Pelicula>& peliculas) {
-    unordered_map<string, set<Pelicula*>> indiceTags;
+// Construye un indice para busquedas por etiqueta.
+unordered_map<string, set<Pelicula*>> construirIndiceEtiquetas(const vector<Pelicula>& peliculas) {
+    unordered_map<string, set<Pelicula*>> indiceEtiquetas;
     for (const auto &pelicula : peliculas) {
-        for (const auto &tag : pelicula.tags) {
-            string tagLower = aMinusculas(tag);
-            indiceTags[tagLower].insert(const_cast<Pelicula*>(&pelicula));
+        for (const auto &etiqueta : pelicula.etiquetas) {
+            string etiquetaLower = aMinusculas(etiqueta);
+            indiceEtiquetas[etiquetaLower].insert(const_cast<Pelicula*>(&pelicula));
         }
     }
-    return indiceTags;
+    return indiceEtiquetas;
 }
 
 // Justifica un texto en un ancho fijo y retorna un vector de lineas.
@@ -269,7 +273,7 @@ void imprimirTituloJustificado(const string &titulo) {
 }
 
 // Extrae un snippet (10 palabras) de la sinopsis, a partir de la primera ocurrencia de la consulta.
-string extraerSnippet(const string &sinopsis, const string &consulta) {
+string extraerFragmento(const string &sinopsis, const string &consulta) {
     string sinopsisLower = aMinusculas(sinopsis);
     string consultaLower = aMinusculas(consulta);
     size_t pos = sinopsisLower.find(consultaLower);
@@ -301,40 +305,40 @@ int calcularRelevanciaMode1(const Pelicula* pelicula, const vector<string>& toke
     return puntaje;
 }
 
-// Para busquedas por tag (modo 2), se asigna un puntaje fijo.
+// Para busquedas por etiqueta (modo 2), se asigna un puntaje fijo.
 int calcularRelevanciaMode2(const Pelicula* pelicula) {
     return 5;
 }
 
-// Genera recomendaciones basadas en los likes.
-// Se omiten las peliculas ya liked y se ordenan por puntaje segun coincidencia de tags.
-vector<Pelicula*> recomendarPeliculas(const vector<Pelicula>& peliculas, const vector<Pelicula*>& liked) {
-    set<string> tagsLiked;
-    for (auto movie : liked)
-        for (const auto &tag : movie->tags)
-            tagsLiked.insert(tag);
+// Genera recomendaciones basadas en los gustados.
+// Se omiten las peliculas ya gustadas y se ordenan por puntaje segun coincidencia de etiquetas.
+vector<Pelicula*> recomendarPeliculas(const vector<Pelicula>& peliculas, const vector<Pelicula*>& gustadas) {
+    set<string> etiquetasGustadas;
+    for (auto pelicula : gustadas)
+        for (auto &etiqueta : pelicula->etiquetas)
+            etiquetasGustadas.insert(etiqueta);
     vector<pair<Pelicula*, int>> puntajes;
-    for (const auto &pelicula : peliculas) {
-        bool yaLike = false;
-        for (auto likedMovie : liked) {
-            if (likedMovie == const_cast<Pelicula*>(&pelicula)) {
-                yaLike = true;
+    for (auto &pelicula : peliculas) {
+        bool yaGustada = false;
+        for (auto pelGustada : gustadas) {
+            if (pelGustada == &pelicula) {
+                yaGustada = true;
                 break;
             }
         }
-        if (yaLike)
+        if (yaGustada)
             continue;
         int puntaje = 0;
-        for (const auto &tag : pelicula.tags)
-            if (tagsLiked.count(tag))
+        for (auto &etiqueta : pelicula.etiquetas)
+            if (etiquetasGustadas.count(etiqueta))
                 puntaje++;
         if (puntaje > 0)
             puntajes.push_back(make_pair(const_cast<Pelicula*>(&pelicula), puntaje));
     }
-    sort(puntajes.begin(), puntajes.end(), [](auto &a, auto &b) { return a.second > b.second; });
+    sort(puntajes.begin(), puntajes.end(), [](auto &a, auto &b){ return a.second > b.second; });
     vector<Pelicula*> recomendadas;
     for (size_t i = 0; i < puntajes.size() && i < 5; i++)
-         recomendadas.push_back(puntajes[i].first);
+        recomendadas.push_back(puntajes[i].first);
     return recomendadas;
 }
 
@@ -347,59 +351,60 @@ void mostrarListaTitulos(const vector<Pelicula*>& lista) {
 }
 
 // Submenu para la pelicula seleccionada.
-// Se imprime el titulo, los tags (separados por coma), la sinopsis en recuadro y la fuente.
+// Se imprime el titulo, los etiquetas (separados por coma), la sinopsis en recuadro y la fuente.
 // Se agrego la opcion 4 para volver directamente al menu principal.
 // La funcion retorna true si el usuario eligio volver al menu principal, false en caso contrario.
-bool submenuPelicula(Pelicula* seleccionada, vector<Pelicula*>& liked, vector<Pelicula*>& verMasTarde) {
+bool submenuPelicula(Pelicula* seleccionada, vector<Pelicula*>& gustadas, vector<Pelicula*>& verMasTarde) {
     while (true) {
         cout << "\n========================================" << endl;
         cout << "       DETALLES DE LA PELICULA" << endl;
         cout << "Titulo: " << seleccionada->titulo << endl;
-        cout << "Tags: ";
-        for (size_t i = 0; i < seleccionada->tags.size(); i++) {
-            cout << seleccionada->tags[i];
-            if (i < seleccionada->tags.size() - 1)
+        cout << "Etiquetas: ";
+        for (size_t i = 0; i < seleccionada->etiquetas.size(); i++){
+            cout << seleccionada->etiquetas[i];
+            if (i < seleccionada->etiquetas.size() - 1)
                 cout << ", ";
         }
         cout << endl;
         cout << "Sinopsis:" << endl;
         imprimirCuadro(seleccionada->sinopsis, ANCHO);
-        cout << "Fuente de la sinopsis: " << seleccionada->source << endl;
+        cout << "Fuente de la sinopsis: " << seleccionada->fuente << endl;
         cout << "========================================" << endl;
-        cout << "\nOpciones para esta pelicula:" << endl;
-        cout << "1. " << (find(liked.begin(), liked.end(), seleccionada) != liked.end() ? "Quitar Like" : "Dar Like") << endl;
-        cout << "2. " << (find(verMasTarde.begin(), verMasTarde.end(), seleccionada) != verMasTarde.end() ? "Quitar de Ver mas tarde" : "Agregar a Ver mas tarde") << endl;
+        cout << "\nOpciones:" << endl;
+        cout << "1. " << (find(gustadas.begin(), gustadas.end(), seleccionada) == gustadas.end() ? "Dar Like" : "Quitar Like") << endl;
+        cout << "2. " << (find(verMasTarde.begin(), verMasTarde.end(), seleccionada) == verMasTarde.end() ? "Agregar a Ver mas tarde" : "Quitar de Ver mas tarde") << endl;
         cout << "3. Regresar al submenu" << endl;
         cout << "4. Volver al Menu Principal" << endl;
-        int subOpcion;
+        int op;
         while (true) {
             cout << "Seleccione una opcion (1-4): " << flush;
-            cin >> subOpcion;
-            if (cin.fail() || subOpcion < 1 || subOpcion > 4) {
+            cin >> op;
+            if (cin.fail() || op < 1 || op > 4) {
                 cin.clear();
                 cin.ignore(numeric_limits<streamsize>::max(), '\n');
-                cout << "Por favor, ingrese un numero entre 1 y 4." << endl;
+                cout << "Ingrese un numero entre 1 y 4." << endl;
             } else {
                 cin.ignore(numeric_limits<streamsize>::max(), '\n');
                 break;
             }
         }
-        if (subOpcion == 4)
-            return true;  // Indica que se desea volver al menu principal.
-        else if (subOpcion == 3)
+        if (op == 4)
+            return true;
+        if (op == 3)
             return false;
-        else if (subOpcion == 1) {
-            if (find(liked.begin(), liked.end(), seleccionada) == liked.end()) {
+        if (op == 1) {
+            if (find(gustadas.begin(), gustadas.end(), seleccionada) == gustadas.end()){
                 seleccionada->likes = 1;
-                liked.push_back(seleccionada);
+                gustadas.push_back(seleccionada);
                 cout << "Like anadido a " << seleccionada->titulo << "!" << endl;
             } else {
-                liked.erase(remove(liked.begin(), liked.end(), seleccionada), liked.end());
+                gustadas.erase(remove(gustadas.begin(), gustadas.end(), seleccionada), gustadas.end());
                 seleccionada->likes = 0;
                 cout << "Like removido de " << seleccionada->titulo << "." << endl;
             }
-        } else if (subOpcion == 2) {
-            if (find(verMasTarde.begin(), verMasTarde.end(), seleccionada) == verMasTarde.end()) {
+        }
+        if (op == 2) {
+            if (find(verMasTarde.begin(), verMasTarde.end(), seleccionada) == verMasTarde.end()){
                 verMasTarde.push_back(seleccionada);
                 cout << seleccionada->titulo << " agregada a Ver mas tarde." << endl;
             } else {
@@ -410,9 +415,9 @@ bool submenuPelicula(Pelicula* seleccionada, vector<Pelicula*>& liked, vector<Pe
     }
 }
 
-// Funcion para manejar listas (como "Ver mas tarde", "Liked", "Recomendaciones").
+// Funcion para manejar listas (como "Ver mas tarde", "gustadas", "Recomendaciones").
 // Se muestran solo los titulos justificados y, al seleccionar una pelicula, se abre el submenu.
-void manejarLista(const vector<Pelicula*>& lista, const string &nombreLista, vector<Pelicula*>& liked, vector<Pelicula*>& verMasTarde) {
+void manejarLista(const vector<Pelicula*>& lista, const string &nombreLista, vector<Pelicula*>& gustadas, vector<Pelicula*>& verMasTarde) {
     if (lista.empty()) {
         cout << "\nNo hay peliculas en " << nombreLista << "." << endl;
         return;
@@ -436,37 +441,33 @@ void manejarLista(const vector<Pelicula*>& lista, const string &nombreLista, vec
         return;
     Pelicula* seleccionada = lista[indiceSel - 1];
     // Si el submenú retorna true, se desea volver directamente al menú principal.
-    bool volverAlMenuPrincipal = submenuPelicula(seleccionada, liked, verMasTarde);
+    bool volverAlMenuPrincipal = submenuPelicula(seleccionada, gustadas, verMasTarde);
     if (volverAlMenuPrincipal)
         return;
 }
 
 // Funcion para manejar la busqueda de peliculas.
 void manejarBusqueda(vector<Pelicula>& peliculas,
-                     unordered_map<string, set<Pelicula*>> &indiceMode1,
-                     unordered_map<string, set<Pelicula*>> &indiceTag,
-                     vector<Pelicula*>& liked,
+                     unordered_map<string, set<Pelicula*>> &indiceModo1,
+                     unordered_map<string, set<Pelicula*>> &indiceEtiqueta,
+                     vector<Pelicula*>& gustadas,
                      vector<Pelicula*>& verMasTarde) {
     // Se utiliza el modo de busqueda persistente en la variable global.
-    int modoBusqueda = globalModoBusqueda;
     cout << "\n--- Busqueda de Peliculas ---" << endl;
-    cout << "Modo actual de busqueda: "
-         << (modoBusqueda == 1 ? "Titulo y sinopsis" : "Tag") << endl;
+    cout << "Modo actual: " << (modoBusquedaGlobal == 1 ? "Titulo y sinopsis" : "Etiqueta") << endl;
     cout << "Ingrese 'modo' para cambiar el modo de busqueda, o ingrese su consulta: " << flush;
     string consulta;
     getline(cin, consulta);
     if (aMinusculas(consulta) == "modo") {
-        cout << "Seleccione modo de busqueda (1: Titulo y sinopsis, 2: Tag): " << flush;
-        cin >> modoBusqueda;
+        cout << "Seleccione modo (1: Titulo y sinopsis, 2: Etiqueta): " << flush;
+        cin >> modoBusquedaGlobal;
         cin.ignore(numeric_limits<streamsize>::max(), '\n');
-        globalModoBusqueda = modoBusqueda; // Se persiste el modo seleccionado.
-        cout << "Modo de busqueda actualizado a: "
-             << (modoBusqueda == 1 ? "Titulo y sinopsis" : "Tag") << endl;
+        cout << "Modo actualizado a: " << (modoBusquedaGlobal == 1 ? "Titulo y sinopsis" : "Etiqueta") << endl;
         cout << "Ingrese su consulta: " << flush;
         getline(cin, consulta);
     }
     vector<pair<Pelicula*, int>> resultados;
-    if (modoBusqueda == 1) {
+    if (modoBusquedaGlobal == 1) {
         // Busqueda en modo 1: se normalizan los espacios y se compara
         string consultaLower = aMinusculas(consulta);
         string consultaNorm = normalizarEspacios(consultaLower);
@@ -485,37 +486,37 @@ void manejarBusqueda(vector<Pelicula>& peliculas,
             if (puntaje > 0)
                 resultados.push_back(make_pair(&pelicula, puntaje));
         }
-    } else if (modoBusqueda == 2) {
-        // Busqueda por tag: si hay comas se separa por comas; sino, se separa por espacios.
-        vector<string> queryTags;
+    } else if (modoBusquedaGlobal == 2) {
+        // Busqueda por etiqueta: si hay comas se separa por comas; sino, se separa por espacios.
+        vector<string> queryEtiquetas;
         if (consulta.find(',') != string::npos) {
             istringstream iss(consulta);
             string token;
             while(getline(iss, token, ',')) {
                 token = recortar(token);
                 if (!token.empty())
-                    queryTags.push_back(aMinusculas(token));
+                    queryEtiquetas.push_back(aMinusculas(token));
             }
         } else {
-            queryTags = tokenizar(consulta);
+            queryEtiquetas = tokenizar(consulta);
         }
-        if(queryTags.empty()){
-            cout << "\nNo se proporcionaron tags." << endl;
+        if(queryEtiquetas.empty()){
+            cout << "\nNo se proporcionaron etiquetas." << endl;
             return;
         }
-        // Calcular la interseccion: conservar solo las peliculas que contengan TODOS los tokens en alguno de sus tags.
+        // Calcular la interseccion: conservar solo las peliculas que contengan TODOS los tokens en alguno de sus etiquetas.
         set<Pelicula*> interseccion;
-        for (auto &entrada : indiceTag) {
-            if (entrada.first.find(queryTags[0]) != string::npos)
+        for (auto &entrada : indiceEtiqueta) {
+            if (entrada.first.find(queryEtiquetas[0]) != string::npos)
                 interseccion.insert(entrada.second.begin(), entrada.second.end());
         }
-        for (size_t i = 1; i < queryTags.size(); i++) {
-            string qt = queryTags[i];
+        for (size_t i = 1; i < queryEtiquetas.size(); i++) {
+            string qt = queryEtiquetas[i];
             set<Pelicula*> temp;
             for (auto p : interseccion) {
                 bool match = false;
-                for (const auto &tag : p->tags) {
-                    if (aMinusculas(tag).find(qt) != string::npos) {
+                for (const auto &etiqueta : p->etiquetas) {
+                    if (aMinusculas(etiqueta).find(qt) != string::npos) {
                         match = true;
                         break;
                     }
@@ -541,7 +542,7 @@ void manejarBusqueda(vector<Pelicula>& peliculas,
         for (int i = paginaActual * 5; i < min((int)resultados.size(), (paginaActual + 1) * 5); i++) {
             Pelicula* p = resultados[i].first;
             string salida = p->titulo;
-            if (modoBusqueda == 1) {
+            if (modoBusquedaGlobal == 1) {
                 bool encontroTitulo = (aMinusculas(p->titulo).find(consultaParaSnippet) != string::npos);
                 bool encontroSinopsis = (aMinusculas(p->sinopsis).find(consultaParaSnippet) != string::npos);
                 if (encontroTitulo && encontroSinopsis)
@@ -551,11 +552,11 @@ void manejarBusqueda(vector<Pelicula>& peliculas,
                 else if (encontroSinopsis)
                     salida += " [Encontrado solo en sinopsis]";
                 if (!encontroTitulo && encontroSinopsis) {
-                    string snippet = extraerSnippet(p->sinopsis, consultaParaSnippet);
+                    string snippet = extraerFragmento(p->sinopsis, consultaParaSnippet);
                     salida += " - " + snippet;
                 }
-            } else if (modoBusqueda == 2) {
-                salida += " [Encontrado en tag]";
+            } else if (modoBusquedaGlobal == 2) {
+                salida += " [Encontrado en etiqueta]";
             }
             cout << to_string(i + 1) << ". " << endl;
             imprimirTituloJustificado(salida);
@@ -602,7 +603,7 @@ void manejarBusqueda(vector<Pelicula>& peliculas,
                 cout << "Seleccion invalida." << endl;
             } else {
                 // Si el submenú retorna true, se desea volver directamente al menú principal.
-                bool volverMenu = submenuPelicula(resultados[indiceGlobal - 1].first, liked, verMasTarde);
+                bool volverMenu = submenuPelicula(resultados[indiceGlobal - 1].first, gustadas, verMasTarde);
                 if (volverMenu)
                     return;
             }
@@ -622,11 +623,11 @@ int main() {
     cout << "\nTotal de peliculas cargadas: " << peliculas.size() << endl;
 
     auto indiceMode1 = construirIndice(peliculas);    // Para busquedas por titulo y sinopsis.
-    auto indiceTag = construirIndiceTags(peliculas);    // Para busquedas por tag.
+    auto indiceEtiqueta = construirIndiceEtiquetas(peliculas);    // Para busquedas por etiqueta.
 
-    vector<Pelicula*> liked;
+    vector<Pelicula*> gustadas;
     vector<Pelicula*> verMasTarde;
-    vector<Pelicula*> recomendaciones = recomendarPeliculas(peliculas, liked);
+    vector<Pelicula*> recomendaciones = recomendarPeliculas(peliculas, gustadas);
 
     cout << "\n=== Inicio ===" << endl;
     if (!verMasTarde.empty()) {
@@ -668,15 +669,15 @@ int main() {
             cout << "\nSaliendo del programa. Gracias por utilizar la Plataforma de Streaming." << endl;
             break;
         } else if (opcionMain == 1) {
-            manejarBusqueda(peliculas, indiceMode1, indiceTag, liked, verMasTarde);
+            manejarBusqueda(peliculas, indiceMode1, indiceEtiqueta, gustadas, verMasTarde);
         } else if (opcionMain == 2) {
-            manejarLista(recomendaciones, "Recomendaciones", liked, verMasTarde);
+            manejarLista(recomendaciones, "Recomendaciones", gustadas, verMasTarde);
         } else if (opcionMain == 3) {
-            manejarLista(verMasTarde, "Ver mas tarde", liked, verMasTarde);
+            manejarLista(verMasTarde, "Ver mas tarde", gustadas, verMasTarde);
         } else if (opcionMain == 4) {
-            manejarLista(liked, "Peliculas a las que le di like", liked, verMasTarde);
+            manejarLista(gustadas, "Peliculas a las que le di like", gustadas, verMasTarde);
         }
-        recomendaciones = recomendarPeliculas(peliculas, liked);
+        recomendaciones = recomendarPeliculas(peliculas, gustadas);
     }
 
     cout << "\nPrograma finalizado." << endl;
