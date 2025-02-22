@@ -8,13 +8,18 @@
 #include <algorithm>
 #include <cctype>
 #include <limits>
+#include <future>
+#include <chrono>
 using namespace std;
 
-// Constantes para formateo
-const int ANCHO = 80;         // Ancho para el recuadro de la sinopsis
-const int ANCHO_TITULO = 60;    // Ancho para justificar los titulos
-int modoBusquedaGlobal = 1; // Variable Global para persistir busqueda 1. Titulo y sinopsis, 2: Etiqueta
+// -------------------- CONSTANTES GLOBALES --------------------
+const int ANCHO = 80;           // Ancho para el recuadro de la sinopsis
+const int ANCHO_TITULO = 60;      // Ancho para justificar los titulos
+int modoBusquedaGlobal = 1;       // 1: Titulo y sinopsis, 2: Etiqueta
+const int NUM_HILOS = 4;        // Numero de hilos para busquedas paralelas (modificable manualmente)
 
+// -------------------- DECLARACION ANTICIPADA --------------------
+class ArbolSufijosUkkonen;   // Forward declaration
 
 // -------------------- ESTRUCTURA PELICULA --------------------
 struct Pelicula {
@@ -37,10 +42,6 @@ void imprimirCuadro(const string &texto, int ancho);
 void imprimirTituloJustificado(const string &titulo);
 string extraerFragmento(const string &sinopsis, const string &consulta);
 
-// Funciones de prueba de relevancia, cambio a futuro
-int calcularRelevanciaMode1(const Pelicula* pelicula, const vector<string>& tokens);
-int calcularRelevanciaMode2(const Pelicula* pelicula);
-//------------------------------------------------
 
 // -------------------- DECLARACIONES DE FUNCIONES DE CARGA E INDICES --------------------
 vector<Pelicula> cargarPeliculas(const string &nombreArchivo);
@@ -292,23 +293,6 @@ string extraerFragmento(const string &sinopsis, const string &consulta) {
     return snippet;
 }
 
-// Calcula la relevancia para busquedas en modo 1 (titulo y sinopsis) usando busqueda por subcadena.
-// Se otorga un bonus si, al normalizar espacios, el titulo es exactamente igual a la consulta.
-int calcularRelevanciaMode1(const Pelicula* pelicula, const vector<string>& tokens) {
-    int puntaje = 0;
-    for (const auto &token : tokens) {
-         if (aMinusculas(pelicula->titulo).find(token) != string::npos)
-             puntaje += 3;
-         if (aMinusculas(pelicula->sinopsis).find(token) != string::npos)
-             puntaje += 2;
-    }
-    return puntaje;
-}
-
-// Para busquedas por etiqueta (modo 2), se asigna un puntaje fijo.
-int calcularRelevanciaMode2(const Pelicula* pelicula) {
-    return 5;
-}
 
 // Genera recomendaciones basadas en los gustados.
 // Se omiten las peliculas ya gustadas y se ordenan por puntaje segun coincidencia de etiquetas.
@@ -341,6 +325,251 @@ vector<Pelicula*> recomendarPeliculas(const vector<Pelicula>& peliculas, const v
         recomendadas.push_back(puntajes[i].first);
     return recomendadas;
 }
+
+
+// -------------------- ARBOL DE SUFIJOS CON ALGORITMO DE UKKONEN --------------------
+// Nota: Esta implementacion es una version simplificada.
+class ArbolSufijosUkkonen {
+    public:
+        struct Nodo {
+            unordered_map<char, Nodo*> hijos;
+            int inicio;
+            int* fin;
+            Nodo* enlaceSufijo;
+            set<int> indicesPeliculas;
+            int indiceSufijo;
+            Nodo(int inicio, int* fin) : inicio(inicio), fin(fin), enlaceSufijo(nullptr), indiceSufijo(-1) {}
+        };
+    
+        string texto;
+        Nodo* raiz;
+        Nodo* ultimoNodoNuevo;
+        Nodo* nodoActivo;
+        int aristaActiva;
+        int longitudActiva;
+        int sufijosPendientes;
+        int finHoja;
+        int tamano; // Longitud de texto
+        vector<int> mapeoPosPeliculas;
+    
+        ArbolSufijosUkkonen(const string& txt, const vector<int>& mapeo) : texto(txt), mapeoPosPeliculas(mapeo) {
+            tamano = texto.size();
+            raiz = new Nodo(-1, new int(-1));
+            nodoActivo = raiz;
+            aristaActiva = -1;
+            longitudActiva = 0;
+            sufijosPendientes = 0;
+            finHoja = -1;
+            ultimoNodoNuevo = nullptr;
+            construirArbol();
+            asignarIndiceSufijoDFS(raiz, 0);
+            propagarIndices(raiz);
+        }
+    
+        void construirArbol() {
+            for (int i = 0; i < tamano; i++) {
+                extenderArbol(i);
+            }
+        }
+    
+        void extenderArbol(int pos) {
+            finHoja = pos;
+            sufijosPendientes++;
+            ultimoNodoNuevo = nullptr;
+            while (sufijosPendientes > 0) {
+                if (longitudActiva == 0)
+                    aristaActiva = pos;
+                char cAct = texto[aristaActiva];
+                if (nodoActivo->hijos.find(cAct) == nodoActivo->hijos.end()) {
+                    nodoActivo->hijos[cAct] = new Nodo(pos, new int(finHoja));
+                    nodoActivo->hijos[cAct]->indicesPeliculas.insert(mapeoPosPeliculas[pos]);
+                    if (ultimoNodoNuevo != nullptr) {
+                        ultimoNodoNuevo->enlaceSufijo = nodoActivo;
+                        ultimoNodoNuevo = nullptr;
+                    }
+                } else {
+                    Nodo* siguiente = nodoActivo->hijos[cAct];
+                    int largoArista = *(siguiente->fin) - siguiente->inicio + 1;
+                    if (longitudActiva >= largoArista) {
+                        aristaActiva += largoArista;
+                        longitudActiva -= largoArista;
+                        nodoActivo = siguiente;
+                        continue;
+                    }
+                    if (texto[siguiente->inicio + longitudActiva] == texto[pos]) {
+                        if (ultimoNodoNuevo != nullptr && nodoActivo != raiz) {
+                            ultimoNodoNuevo->enlaceSufijo = nodoActivo;
+                            ultimoNodoNuevo = nullptr;
+                        }
+                        longitudActiva++;
+                        break;
+                    }
+                    int* finDividir = new int(siguiente->inicio + longitudActiva - 1);
+                    Nodo* nodoDividir = new Nodo(siguiente->inicio, finDividir);
+                    nodoActivo->hijos[cAct] = nodoDividir;
+                    nodoDividir->hijos[texto[pos]] = new Nodo(pos, new int(finHoja));
+                    nodoDividir->hijos[texto[pos]]->indicesPeliculas.insert(mapeoPosPeliculas[pos]);
+                    siguiente->inicio += longitudActiva;
+                    nodoDividir->hijos[texto[siguiente->inicio]] = siguiente;
+                    if (ultimoNodoNuevo != nullptr) {
+                        ultimoNodoNuevo->enlaceSufijo = nodoDividir;
+                    }
+                    ultimoNodoNuevo = nodoDividir;
+                }
+                sufijosPendientes--;
+                if (nodoActivo == raiz && longitudActiva > 0) {
+                    longitudActiva--;
+                    aristaActiva = pos - sufijosPendientes + 1;
+                } else if (nodoActivo != raiz) {
+                    nodoActivo = nodoActivo->enlaceSufijo ? nodoActivo->enlaceSufijo : raiz;
+                }
+            }
+        }
+    
+        void asignarIndiceSufijoDFS(Nodo* n, int alturaEtiqueta) {
+            if (n == nullptr) return;
+            bool esHoja = true;
+            for (auto &par : n->hijos) {
+                esHoja = false;
+                asignarIndiceSufijoDFS(par.second, alturaEtiqueta + *(par.second->fin) - par.second->inicio + 1);
+            }
+            if (esHoja) {
+                n->indiceSufijo = tamano - alturaEtiqueta;
+                if(n->indiceSufijo >= 0 && n->indiceSufijo < mapeoPosPeliculas.size())
+                    n->indicesPeliculas.insert(mapeoPosPeliculas[n->indiceSufijo]);
+            }
+        }
+    
+        void propagarIndices(Nodo* n) {
+            if (n == nullptr) return;
+            for (auto &par : n->hijos) {
+                propagarIndices(par.second);
+                n->indicesPeliculas.insert(par.second->indicesPeliculas.begin(), par.second->indicesPeliculas.end());
+            }
+        }
+    
+        // Busqueda: recorre el arbol y devuelve el conjunto de indices de peliculas.
+        set<int> buscar(const string& patron) {
+            Nodo* nAct = raiz;
+            int i = 0;
+            while (i < patron.size()) {
+                if (nAct->hijos.find(patron[i]) == nAct->hijos.end())
+                    return {};
+                Nodo* sig = nAct->hijos[patron[i]];
+                int largoArista = *(sig->fin) - sig->inicio + 1;
+                int j = 0;
+                while (j < largoArista && i < patron.size()) {
+                    if (texto[sig->inicio + j] != patron[i])
+                        return {};
+                    i++; j++;
+                }
+                nAct = sig;
+            }
+            return nAct->indicesPeliculas;
+        }
+    };
+// -------------------- PATRON STRATEGY: ESTRATEGIA DE BUSQUEDA --------------------
+class EstrategiaBusqueda {
+public:
+    virtual vector<pair<Pelicula*, int>> buscar(vector<Pelicula>& peliculas, const string &consulta) = 0;
+    virtual ~EstrategiaBusqueda() {}
+};
+
+class EstrategiaTituloSinopsis : public EstrategiaBusqueda {
+public:
+    vector<pair<Pelicula*, int>> buscar(vector<Pelicula>& peliculas, const string &consulta) override {
+        string consultaLower = aMinusculas(consulta);
+        string consultaNorm = normalizarEspacios(consultaLower);
+        // Uso del arbol de sufijos
+        extern ArbolSufijosUkkonen* arbolSufijosGlobal;
+        set<int> indicesCoincidentes = arbolSufijosGlobal->buscar(consultaLower);
+        // Fallback: union con busqueda lineal
+        for (int i = 0; i < peliculas.size(); i++) {
+            string titLower = aMinusculas(peliculas[i].titulo);
+            string sinopLower = aMinusculas(peliculas[i].sinopsis);
+            if (titLower.find(consultaLower) != string::npos || sinopLower.find(consultaLower) != string::npos)
+                indicesCoincidentes.insert(i);
+        }
+        vector<pair<Pelicula*, int>> resultados;
+        for (int idx : indicesCoincidentes) {
+            Pelicula &pel = peliculas[idx];
+            string titLower = aMinusculas(pel.titulo);
+            string titNorm = normalizarEspacios(titLower);
+            string sinopLower = aMinusculas(pel.sinopsis);
+            int puntaje = 0;
+            if (titLower.find(consultaLower) != string::npos) {
+                puntaje += 3;
+                if (titNorm == consultaNorm)
+                    puntaje += 50;
+            }
+            if (sinopLower.find(consultaLower) != string::npos)
+                puntaje += 2;
+            if (puntaje > 0)
+                resultados.push_back(make_pair(&pel, puntaje));
+        }
+        sort(resultados.begin(), resultados.end(), [](auto &a, auto &b){ return a.second > b.second; });
+        return resultados;
+    }
+};
+
+class EstrategiaEtiqueta : public EstrategiaBusqueda {
+public:
+    vector<pair<Pelicula*, int>> buscar(vector<Pelicula>& peliculas, const string &consulta) override {
+        vector<string> etiquetasConsulta;
+        if (consulta.find(',') != string::npos) {
+            istringstream iss(consulta);
+            string token;
+            while(getline(iss, token, ',')) {
+                token = recortar(token);
+                if (!token.empty())
+                    etiquetasConsulta.push_back(aMinusculas(token));
+            }
+        } else {
+            etiquetasConsulta = tokenizar(consulta);
+        }
+        vector<future<vector<pair<Pelicula*, int>>>> futuros;
+        size_t total = peliculas.size();
+        size_t numHilos = NUM_HILOS;
+        size_t tamBloque = total / numHilos;
+        for (size_t i = 0; i < numHilos; i++) {
+            size_t inicio = i * tamBloque;
+            size_t fin = (i == numHilos - 1) ? total : (i + 1) * tamBloque;
+            futuros.push_back(async(launch::async, [&, inicio, fin, etiquetasConsulta]() {
+                vector<pair<Pelicula*, int>> parcial;
+                for (size_t j = inicio; j < fin; j++) {
+                    Pelicula& pel = peliculas[j];
+                    bool valido = true;
+                    for (auto &qt : etiquetasConsulta) {
+                        bool encontrado = false;
+                        for (auto &etiqueta : pel.etiquetas) {
+                            if (aMinusculas(etiqueta).find(qt) != string::npos) {
+                                encontrado = true;
+                                break;
+                            }
+                        }
+                        if (!encontrado) {
+                            valido = false;
+                            break;
+                        }
+                    }
+                    if (valido)
+                        parcial.push_back(make_pair(&pel, 5));
+                }
+                return parcial;
+            }));
+        }
+        vector<pair<Pelicula*, int>> resultados;
+        for (auto &fut : futuros) {
+            vector<pair<Pelicula*, int>> parcial = fut.get();
+            resultados.insert(resultados.end(), parcial.begin(), parcial.end());
+        }
+        sort(resultados.begin(), resultados.end(), [](auto &a, auto &b){ return a.second > b.second; });
+        return resultados;
+    }
+};
+
+// -------------------- VARIABLE GLOBAL PARA ARBOL DE SUFIJOS --------------------
+ArbolSufijosUkkonen* arbolSufijosGlobal = nullptr;
 
 // Muestra solo los titulos de una lista, justificados.
 void mostrarListaTitulos(const vector<Pelicula*>& lista) {
@@ -446,13 +675,12 @@ void manejarLista(const vector<Pelicula*>& lista, const string &nombreLista, vec
         return;
 }
 
-// Funcion para manejar la busqueda de peliculas.
+// -------------------- PATRON STRATEGY: MANEJO DE BUSQUEDA --------------------
 void manejarBusqueda(vector<Pelicula>& peliculas,
                      unordered_map<string, set<Pelicula*>> &indiceModo1,
                      unordered_map<string, set<Pelicula*>> &indiceEtiqueta,
                      vector<Pelicula*>& gustadas,
                      vector<Pelicula*>& verMasTarde) {
-    // Se utiliza el modo de busqueda persistente en la variable global.
     cout << "\n--- Busqueda de Peliculas ---" << endl;
     cout << "Modo actual: " << (modoBusquedaGlobal == 1 ? "Titulo y sinopsis" : "Etiqueta") << endl;
     cout << "Ingrese 'modo' para cambiar el modo de busqueda, o ingrese su consulta: " << flush;
@@ -466,97 +694,114 @@ void manejarBusqueda(vector<Pelicula>& peliculas,
         cout << "Ingrese su consulta: " << flush;
         getline(cin, consulta);
     }
+    // Guardar la busqueda en el historial (Memento)
+    cuidadorHistorial.agregarMemento(MementoBusqueda(consulta, modoBusquedaGlobal));
+    // Medir tiempo de busqueda
+    auto inicioBusq = chrono::high_resolution_clock::now();
     vector<pair<Pelicula*, int>> resultados;
     if (modoBusquedaGlobal == 1) {
-        // Busqueda en modo 1: se normalizan los espacios y se compara
         string consultaLower = aMinusculas(consulta);
         string consultaNorm = normalizarEspacios(consultaLower);
-        for (auto &pelicula : peliculas) {
-            string tituloLower = aMinusculas(pelicula.titulo);
-            string tituloNorm = normalizarEspacios(tituloLower);
-            string sinopsisLower = aMinusculas(pelicula.sinopsis);
+        set<int> indicesCoincidentes = arbolSufijosGlobal->buscar(consultaLower);
+        // Fallback: union con busqueda lineal
+        for (int i = 0; i < peliculas.size(); i++) {
+            string titLower = aMinusculas(peliculas[i].titulo);
+            string sinopLower = aMinusculas(peliculas[i].sinopsis);
+            if (titLower.find(consultaLower) != string::npos || sinopLower.find(consultaLower) != string::npos)
+                indicesCoincidentes.insert(i);
+        }
+        for (int idx : indicesCoincidentes) {
+            Pelicula &pel = peliculas[idx];
+            string titLower = aMinusculas(pel.titulo);
+            string titNorm = normalizarEspacios(titLower);
+            string sinopLower = aMinusculas(pel.sinopsis);
             int puntaje = 0;
-            if (tituloLower.find(consultaLower) != string::npos) {
+            if (titLower.find(consultaLower) != string::npos) {
                 puntaje += 3;
-                if (tituloNorm == consultaNorm)
-                    puntaje += 50; // Bonus para coincidencia exacta.
+                if (titNorm == consultaNorm)
+                    puntaje += 50;
             }
-            if (sinopsisLower.find(consultaLower) != string::npos)
+            if (sinopLower.find(consultaLower) != string::npos)
                 puntaje += 2;
             if (puntaje > 0)
-                resultados.push_back(make_pair(&pelicula, puntaje));
+                resultados.push_back(make_pair(&pel, puntaje));
         }
-    } else if (modoBusquedaGlobal == 2) {
-        // Busqueda por etiqueta: si hay comas se separa por comas; sino, se separa por espacios.
-        vector<string> queryEtiquetas;
+    } else {
+        vector<string> etiquetasConsulta;
         if (consulta.find(',') != string::npos) {
             istringstream iss(consulta);
             string token;
             while(getline(iss, token, ',')) {
                 token = recortar(token);
                 if (!token.empty())
-                    queryEtiquetas.push_back(aMinusculas(token));
+                    etiquetasConsulta.push_back(aMinusculas(token));
             }
         } else {
-            queryEtiquetas = tokenizar(consulta);
+            etiquetasConsulta = tokenizar(consulta);
         }
-        if(queryEtiquetas.empty()){
-            cout << "\nNo se proporcionaron etiquetas." << endl;
-            return;
-        }
-        // Calcular la interseccion: conservar solo las peliculas que contengan TODOS los tokens en alguno de sus etiquetas.
-        set<Pelicula*> interseccion;
-        for (auto &entrada : indiceEtiqueta) {
-            if (entrada.first.find(queryEtiquetas[0]) != string::npos)
-                interseccion.insert(entrada.second.begin(), entrada.second.end());
-        }
-        for (size_t i = 1; i < queryEtiquetas.size(); i++) {
-            string qt = queryEtiquetas[i];
-            set<Pelicula*> temp;
-            for (auto p : interseccion) {
-                bool match = false;
-                for (const auto &etiqueta : p->etiquetas) {
-                    if (aMinusculas(etiqueta).find(qt) != string::npos) {
-                        match = true;
-                        break;
+        vector<future<vector<pair<Pelicula*, int>>>> futuros;
+        size_t total = peliculas.size();
+        size_t numHilos = NUM_HILOS;
+        size_t tamBloque = total / numHilos;
+        for (size_t i = 0; i < numHilos; i++) {
+            size_t inicio = i * tamBloque;
+            size_t fin = (i == numHilos - 1) ? total : (i + 1) * tamBloque;
+            futuros.push_back(async(launch::async, [&, inicio, fin, etiquetasConsulta]() {
+                vector<pair<Pelicula*, int>> parcial;
+                for (size_t j = inicio; j < fin; j++) {
+                    Pelicula& pel = peliculas[j];
+                    bool valido = true;
+                    for (auto &qt : etiquetasConsulta) {
+                        bool encontrado = false;
+                        for (auto &etiqueta : pel.etiquetas) {
+                            if (aMinusculas(etiqueta).find(qt) != string::npos) {
+                                encontrado = true;
+                                break;
+                            }
+                        }
+                        if (!encontrado) {
+                            valido = false;
+                            break;
+                        }
                     }
+                    if (valido)
+                        parcial.push_back(make_pair(&pel, 5));
                 }
-                if(match)
-                    temp.insert(p);
-            }
-            interseccion = temp;
+                return parcial;
+            }));
         }
-        for (auto pelicula : interseccion)
-            resultados.push_back(make_pair(pelicula, 5)); // Puntaje fijo.
+        for (auto &fut : futuros) {
+            vector<pair<Pelicula*, int>> parcial = fut.get();
+            resultados.insert(resultados.end(), parcial.begin(), parcial.end());
+        }
     }
-    sort(resultados.begin(), resultados.end(), [](auto &a, auto &b) { return a.second > b.second; });
+    auto finBusq = chrono::high_resolution_clock::now();
+    chrono::duration<double> tiempoBusq = finBusq - inicioBusq;
+    cout << "Tiempo de busqueda: " << tiempoBusq.count() << " segundos." << endl;
     if (resultados.empty()) {
         cout << "\nNo se encontraron peliculas para la consulta." << endl;
         return;
     }
+    sort(resultados.begin(), resultados.end(), [](auto &a, auto &b){ return a.second > b.second; });
     int totalPaginas = (resultados.size() + 4) / 5;
     int paginaActual = 0;
-    string consultaParaSnippet = aMinusculas(consulta);
+    string consultaLower = aMinusculas(consulta);
     while (true) {
         cout << "\n--- Resultados (pagina " << (paginaActual + 1) << " de " << totalPaginas << ") ---" << endl;
         for (int i = paginaActual * 5; i < min((int)resultados.size(), (paginaActual + 1) * 5); i++) {
             Pelicula* p = resultados[i].first;
             string salida = p->titulo;
-            if (modoBusquedaGlobal == 1) {
-                bool encontroTitulo = (aMinusculas(p->titulo).find(consultaParaSnippet) != string::npos);
-                bool encontroSinopsis = (aMinusculas(p->sinopsis).find(consultaParaSnippet) != string::npos);
-                if (encontroTitulo && encontroSinopsis)
-                    salida += " [Encontrado en titulo y sinopsis]";
-                else if (encontroTitulo)
-                    salida += " [Encontrado solo en titulo]";
-                else if (encontroSinopsis)
-                    salida += " [Encontrado solo en sinopsis]";
-                if (!encontroTitulo && encontroSinopsis) {
-                    string snippet = extraerFragmento(p->sinopsis, consultaParaSnippet);
-                    salida += " - " + snippet;
-                }
-            } else if (modoBusquedaGlobal == 2) {
-                salida += " [Encontrado en etiqueta]";
+            bool encTit = (aMinusculas(p->titulo).find(consultaLower) != string::npos);
+            bool encSin = (aMinusculas(p->sinopsis).find(consultaLower) != string::npos);
+            if (encTit && encSin)
+                salida += " [Encontrado en titulo y sinopsis]";
+            else if (encTit)
+                salida += " [Encontrado solo en titulo]";
+            else if (encSin)
+                salida += " [Encontrado solo en sinopsis]";
+            if (!encTit && encSin) {
+                string frag = extraerFragmento(p->sinopsis, consultaLower);
+                salida += " - " + frag;
             }
             cout << to_string(i + 1) << ". " << endl;
             imprimirTituloJustificado(salida);
@@ -566,34 +811,34 @@ void manejarBusqueda(vector<Pelicula>& peliculas,
         cout << "2. Pagina anterior" << endl;
         cout << "3. Siguiente pagina" << endl;
         cout << "4. Regresar al menu principal" << endl;
-        int opcion;
+        int op;
         while (true) {
             cout << "Seleccione una opcion (1-4): " << flush;
-            cin >> opcion;
-            if (cin.fail() || opcion < 1 || opcion > 4) {
+            cin >> op;
+            if (cin.fail() || op < 1 || op > 4) {
                 cin.clear();
                 cin.ignore(numeric_limits<streamsize>::max(), '\n');
-                cout << "Por favor, ingrese un numero entre 1 y 4." << endl;
+                cout << "Ingrese un numero entre 1 y 4." << endl;
             } else {
                 cin.ignore(numeric_limits<streamsize>::max(), '\n');
                 break;
             }
         }
-        if (opcion == 4)
+        if (op == 4)
             break;
-        else if (opcion == 2) {
+        else if (op == 2) {
             if (paginaActual > 0)
                 paginaActual--;
             else
                 cout << "No hay pagina anterior." << endl;
         }
-        else if (opcion == 3) {
+        else if (op == 3) {
             if (paginaActual < totalPaginas - 1)
                 paginaActual++;
             else
                 cout << "No hay mas paginas." << endl;
         }
-        else if (opcion == 1) {
+        else if (op == 1) {
             cout << "Seleccione el numero de la pelicula (segun el listado mostrado): " << flush;
             int indiceSel;
             cin >> indiceSel;
@@ -602,7 +847,6 @@ void manejarBusqueda(vector<Pelicula>& peliculas,
             if (indiceSel < 1 || indiceSel > 5 || indiceGlobal > (int)resultados.size()) {
                 cout << "Seleccion invalida." << endl;
             } else {
-                // Si el submenú retorna true, se desea volver directamente al menú principal.
                 bool volverMenu = submenuPelicula(resultados[indiceGlobal - 1].first, gustadas, verMasTarde);
                 if (volverMenu)
                     return;
