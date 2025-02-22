@@ -56,13 +56,74 @@ void mostrarListaTitulos(const vector<Pelicula*>& lista);
 bool submenuPelicula(Pelicula* seleccionada, vector<Pelicula*>& gustadas, vector<Pelicula*>& verMasTarde);
 void manejarLista(const vector<Pelicula*>& lista, const string &nombreLista, vector<Pelicula*>& gustadas, vector<Pelicula*>& verMasTarde);
 void manejarBusqueda(vector<Pelicula>& peliculas,
-                     unordered_map<string, set<Pelicula*>> &indiceMode1,
-                     unordered_map<string, set<Pelicula*>> &indiceEtiqueta,
-                     vector<Pelicula*>& gustadas,
-                     vector<Pelicula*>& verMasTarde);
+                    unordered_map<string, set<Pelicula*>> &indiceMode1,
+                    unordered_map<string, set<Pelicula*>> &indiceEtiqueta,
+                    vector<Pelicula*>& gustadas,
+                    vector<Pelicula*>& verMasTarde);
+void manejarHistorialBusquedas();
 
-// ===================== DEFINICIONES =====================
 
+// -------------------- PATRON MEMENTO: HISTORIAL DE BUSQUEDAS --------------------
+class MementoBusqueda {
+    public:
+    string consulta;
+    int modoBusqueda;
+    MementoBusqueda(const string &c, int m) : consulta(c), modoBusqueda(m) {}
+};
+
+class CuidadorHistorialBusquedas {
+private:
+    vector<MementoBusqueda> historial;
+public:
+    void agregarMemento(const MementoBusqueda &m) {
+        historial.push_back(m);
+    }
+    const vector<MementoBusqueda>& obtenerHistorial() const {
+        return historial;
+    }
+    void eliminarMemento(int indice) {
+        if (indice >= 0 && indice < (int)historial.size())
+            historial.erase(historial.begin() + indice);
+    }
+    void borrarHistorial() {
+        historial.clear();
+    }
+    void mostrarHistorial() const {
+        if (historial.empty()){
+            cout << "\nNo hay historial de busquedas." << endl;
+            return;
+        }
+        cout << "\n--- Historial de Busquedas ---" << endl;
+        for (int i = 0; i < historial.size(); i++){
+            cout << i+1 << ". Consulta: \"" << historial[i].consulta
+                 << "\" (Modo: " << (historial[i].modoBusqueda==1 ? "Titulo y sinopsis" : "Etiqueta") << ")" << endl;
+        }
+    }
+};
+
+CuidadorHistorialBusquedas cuidadorHistorial;
+
+// -------------------- PATRON SINGLETON: BASE DE DATOS --------------------
+class BaseDeDatos {
+    private:
+        static BaseDeDatos* instancia;
+        vector<Pelicula> peliculas;
+        BaseDeDatos(const string &archivo) {
+            peliculas = cargarPeliculas(archivo);
+        }
+    public:
+        static BaseDeDatos* obtenerInstancia(const string &archivo) {
+            if (!instancia)
+                instancia = new BaseDeDatos(archivo);
+            return instancia;
+        }
+        vector<Pelicula>& obtenerPeliculas() {
+            return peliculas;
+        }
+    };
+    BaseDeDatos* BaseDeDatos::instancia = nullptr;
+
+// -------------------- FUNCIONES AUXILIARES --------------------
 // Convierte una cadena a minusculas.
 string aMinusculas(const string &s) {
     string out = s;
@@ -145,6 +206,7 @@ string normalizarEspacios(const string &s) {
     return resultado;
 }
 
+// -------------------- FUNCION PARA CARGAR PELICULAS --------------------
 // Carga las peliculas desde un CSV (respetando registros multilinea).
 // Se separan los etiquetas usando coma como delimitador para conservar etiquetas compuestos.
 vector<Pelicula> cargarPeliculas(const string &nombreArchivo) {
@@ -331,143 +393,144 @@ vector<Pelicula*> recomendarPeliculas(const vector<Pelicula>& peliculas, const v
 // Nota: Esta implementacion es una version simplificada.
 class ArbolSufijosUkkonen {
     public:
-        struct Nodo {
-            unordered_map<char, Nodo*> hijos;
-            int inicio;
-            int* fin;
-            Nodo* enlaceSufijo;
-            set<int> indicesPeliculas;
-            int indiceSufijo;
-            Nodo(int inicio, int* fin) : inicio(inicio), fin(fin), enlaceSufijo(nullptr), indiceSufijo(-1) {}
-        };
-    
-        string texto;
-        Nodo* raiz;
-        Nodo* ultimoNodoNuevo;
-        Nodo* nodoActivo;
-        int aristaActiva;
-        int longitudActiva;
-        int sufijosPendientes;
-        int finHoja;
-        int tamano; // Longitud de texto
-        vector<int> mapeoPosPeliculas;
-    
-        ArbolSufijosUkkonen(const string& txt, const vector<int>& mapeo) : texto(txt), mapeoPosPeliculas(mapeo) {
-            tamano = texto.size();
-            raiz = new Nodo(-1, new int(-1));
-            nodoActivo = raiz;
-            aristaActiva = -1;
-            longitudActiva = 0;
-            sufijosPendientes = 0;
-            finHoja = -1;
-            ultimoNodoNuevo = nullptr;
-            construirArbol();
-            asignarIndiceSufijoDFS(raiz, 0);
-            propagarIndices(raiz);
+    struct Nodo {
+        unordered_map<char, Nodo*> hijos;
+        int inicio;
+        int* fin;
+        Nodo* enlaceSufijo;
+        set<int> indicesPeliculas;
+        int indiceSufijo;
+        Nodo(int inicio, int* fin) : inicio(inicio), fin(fin), enlaceSufijo(nullptr), indiceSufijo(-1) {}
+    };
+
+    string texto;
+    Nodo* raiz;
+    Nodo* ultimoNodoNuevo;
+    Nodo* nodoActivo;
+    int aristaActiva;
+    int longitudActiva;
+    int sufijosPendientes;
+    int finHoja;
+    int tamano; // Longitud de texto
+    vector<int> mapeoPosPeliculas;
+
+    ArbolSufijosUkkonen(const string& txt, const vector<int>& mapeo) : texto(txt), mapeoPosPeliculas(mapeo) {
+        tamano = texto.size();
+        raiz = new Nodo(-1, new int(-1));
+        nodoActivo = raiz;
+        aristaActiva = -1;
+        longitudActiva = 0;
+        sufijosPendientes = 0;
+        finHoja = -1;
+        ultimoNodoNuevo = nullptr;
+        construirArbol();
+        asignarIndiceSufijoDFS(raiz, 0);
+        propagarIndices(raiz);
+    }
+
+    void construirArbol() {
+        for (int i = 0; i < tamano; i++) {
+            extenderArbol(i);
         }
-    
-        void construirArbol() {
-            for (int i = 0; i < tamano; i++) {
-                extenderArbol(i);
-            }
-        }
-    
-        void extenderArbol(int pos) {
-            finHoja = pos;
-            sufijosPendientes++;
-            ultimoNodoNuevo = nullptr;
-            while (sufijosPendientes > 0) {
-                if (longitudActiva == 0)
-                    aristaActiva = pos;
-                char cAct = texto[aristaActiva];
-                if (nodoActivo->hijos.find(cAct) == nodoActivo->hijos.end()) {
-                    nodoActivo->hijos[cAct] = new Nodo(pos, new int(finHoja));
-                    nodoActivo->hijos[cAct]->indicesPeliculas.insert(mapeoPosPeliculas[pos]);
-                    if (ultimoNodoNuevo != nullptr) {
+    }
+
+    void extenderArbol(int pos) {
+        finHoja = pos;
+        sufijosPendientes++;
+        ultimoNodoNuevo = nullptr;
+        while (sufijosPendientes > 0) {
+            if (longitudActiva == 0)
+                aristaActiva = pos;
+            char cAct = texto[aristaActiva];
+            if (nodoActivo->hijos.find(cAct) == nodoActivo->hijos.end()) {
+                nodoActivo->hijos[cAct] = new Nodo(pos, new int(finHoja));
+                nodoActivo->hijos[cAct]->indicesPeliculas.insert(mapeoPosPeliculas[pos]);
+                if (ultimoNodoNuevo != nullptr) {
+                    ultimoNodoNuevo->enlaceSufijo = nodoActivo;
+                    ultimoNodoNuevo = nullptr;
+                }
+            } else {
+                Nodo* siguiente = nodoActivo->hijos[cAct];
+                int largoArista = *(siguiente->fin) - siguiente->inicio + 1;
+                if (longitudActiva >= largoArista) {
+                    aristaActiva += largoArista;
+                    longitudActiva -= largoArista;
+                    nodoActivo = siguiente;
+                    continue;
+                }
+                if (texto[siguiente->inicio + longitudActiva] == texto[pos]) {
+                    if (ultimoNodoNuevo != nullptr && nodoActivo != raiz) {
                         ultimoNodoNuevo->enlaceSufijo = nodoActivo;
                         ultimoNodoNuevo = nullptr;
                     }
-                } else {
-                    Nodo* siguiente = nodoActivo->hijos[cAct];
-                    int largoArista = *(siguiente->fin) - siguiente->inicio + 1;
-                    if (longitudActiva >= largoArista) {
-                        aristaActiva += largoArista;
-                        longitudActiva -= largoArista;
-                        nodoActivo = siguiente;
-                        continue;
-                    }
-                    if (texto[siguiente->inicio + longitudActiva] == texto[pos]) {
-                        if (ultimoNodoNuevo != nullptr && nodoActivo != raiz) {
-                            ultimoNodoNuevo->enlaceSufijo = nodoActivo;
-                            ultimoNodoNuevo = nullptr;
-                        }
-                        longitudActiva++;
-                        break;
-                    }
-                    int* finDividir = new int(siguiente->inicio + longitudActiva - 1);
-                    Nodo* nodoDividir = new Nodo(siguiente->inicio, finDividir);
-                    nodoActivo->hijos[cAct] = nodoDividir;
-                    nodoDividir->hijos[texto[pos]] = new Nodo(pos, new int(finHoja));
-                    nodoDividir->hijos[texto[pos]]->indicesPeliculas.insert(mapeoPosPeliculas[pos]);
-                    siguiente->inicio += longitudActiva;
-                    nodoDividir->hijos[texto[siguiente->inicio]] = siguiente;
-                    if (ultimoNodoNuevo != nullptr) {
-                        ultimoNodoNuevo->enlaceSufijo = nodoDividir;
-                    }
-                    ultimoNodoNuevo = nodoDividir;
+                    longitudActiva++;
+                    break;
                 }
-                sufijosPendientes--;
-                if (nodoActivo == raiz && longitudActiva > 0) {
-                    longitudActiva--;
-                    aristaActiva = pos - sufijosPendientes + 1;
-                } else if (nodoActivo != raiz) {
-                    nodoActivo = nodoActivo->enlaceSufijo ? nodoActivo->enlaceSufijo : raiz;
+                int* finDividir = new int(siguiente->inicio + longitudActiva - 1);
+                Nodo* nodoDividir = new Nodo(siguiente->inicio, finDividir);
+                nodoActivo->hijos[cAct] = nodoDividir;
+                nodoDividir->hijos[texto[pos]] = new Nodo(pos, new int(finHoja));
+                nodoDividir->hijos[texto[pos]]->indicesPeliculas.insert(mapeoPosPeliculas[pos]);
+                siguiente->inicio += longitudActiva;
+                nodoDividir->hijos[texto[siguiente->inicio]] = siguiente;
+                if (ultimoNodoNuevo != nullptr) {
+                    ultimoNodoNuevo->enlaceSufijo = nodoDividir;
                 }
+                ultimoNodoNuevo = nodoDividir;
+            }
+            sufijosPendientes--;
+            if (nodoActivo == raiz && longitudActiva > 0) {
+                longitudActiva--;
+                aristaActiva = pos - sufijosPendientes + 1;
+            } else if (nodoActivo != raiz) {
+                nodoActivo = nodoActivo->enlaceSufijo ? nodoActivo->enlaceSufijo : raiz;
             }
         }
-    
-        void asignarIndiceSufijoDFS(Nodo* n, int alturaEtiqueta) {
-            if (n == nullptr) return;
-            bool esHoja = true;
-            for (auto &par : n->hijos) {
-                esHoja = false;
-                asignarIndiceSufijoDFS(par.second, alturaEtiqueta + *(par.second->fin) - par.second->inicio + 1);
-            }
-            if (esHoja) {
-                n->indiceSufijo = tamano - alturaEtiqueta;
-                if(n->indiceSufijo >= 0 && n->indiceSufijo < mapeoPosPeliculas.size())
-                    n->indicesPeliculas.insert(mapeoPosPeliculas[n->indiceSufijo]);
-            }
+    }
+
+    void asignarIndiceSufijoDFS(Nodo* n, int alturaEtiqueta) {
+        if (n == nullptr) return;
+        bool esHoja = true;
+        for (auto &par : n->hijos) {
+            esHoja = false;
+            asignarIndiceSufijoDFS(par.second, alturaEtiqueta + *(par.second->fin) - par.second->inicio + 1);
         }
-    
-        void propagarIndices(Nodo* n) {
-            if (n == nullptr) return;
-            for (auto &par : n->hijos) {
-                propagarIndices(par.second);
-                n->indicesPeliculas.insert(par.second->indicesPeliculas.begin(), par.second->indicesPeliculas.end());
-            }
+        if (esHoja) {
+            n->indiceSufijo = tamano - alturaEtiqueta;
+            if(n->indiceSufijo >= 0 && n->indiceSufijo < mapeoPosPeliculas.size())
+                n->indicesPeliculas.insert(mapeoPosPeliculas[n->indiceSufijo]);
         }
-    
-        // Busqueda: recorre el arbol y devuelve el conjunto de indices de peliculas.
-        set<int> buscar(const string& patron) {
-            Nodo* nAct = raiz;
-            int i = 0;
-            while (i < patron.size()) {
-                if (nAct->hijos.find(patron[i]) == nAct->hijos.end())
+    }
+
+    void propagarIndices(Nodo* n) {
+        if (n == nullptr) return;
+        for (auto &par : n->hijos) {
+            propagarIndices(par.second);
+            n->indicesPeliculas.insert(par.second->indicesPeliculas.begin(), par.second->indicesPeliculas.end());
+        }
+    }
+
+    // Busqueda: recorre el arbol y devuelve el conjunto de indices de peliculas.
+    set<int> buscar(const string& patron) {
+        Nodo* nAct = raiz;
+        int i = 0;
+        while (i < patron.size()) {
+            if (nAct->hijos.find(patron[i]) == nAct->hijos.end())
+                return {};
+            Nodo* sig = nAct->hijos[patron[i]];
+            int largoArista = *(sig->fin) - sig->inicio + 1;
+            int j = 0;
+            while (j < largoArista && i < patron.size()) {
+                if (texto[sig->inicio + j] != patron[i])
                     return {};
-                Nodo* sig = nAct->hijos[patron[i]];
-                int largoArista = *(sig->fin) - sig->inicio + 1;
-                int j = 0;
-                while (j < largoArista && i < patron.size()) {
-                    if (texto[sig->inicio + j] != patron[i])
-                        return {};
-                    i++; j++;
-                }
-                nAct = sig;
+                i++; j++;
             }
-            return nAct->indicesPeliculas;
+            nAct = sig;
         }
-    };
+        return nAct->indicesPeliculas;
+    }
+};
+
 // -------------------- PATRON STRATEGY: ESTRATEGIA DE BUSQUEDA --------------------
 class EstrategiaBusqueda {
 public:
@@ -855,14 +918,57 @@ void manejarBusqueda(vector<Pelicula>& peliculas,
     }
 }
 
-// Funcion principal: Menu principal.
+// -------------------- MANEJO DEL HISTORIAL DE BUSQUEDAS --------------------
+void manejarHistorialBusquedas() {
+    while (true) {
+        cuidadorHistorial.mostrarHistorial();
+        cout << "\nOpciones:" << endl;
+        cout << "1. Eliminar una entrada" << endl;
+        cout << "2. Borrar todo el historial" << endl;
+        cout << "3. Regresar al menu principal" << endl;
+        int op;
+        while (true) {
+            cout << "Seleccione una opcion (1-3): " << flush;
+            cin >> op;
+            if (cin.fail() || op < 1 || op > 3) {
+                cin.clear();
+                cin.ignore(numeric_limits<streamsize>::max(), '\n');
+                cout << "Ingrese un numero entre 1 y 3." << endl;
+            } else {
+                cin.ignore(numeric_limits<streamsize>::max(), '\n');
+                break;
+            }
+        }
+        if (op == 3)
+            break;
+        else if (op == 1) {
+            cout << "Ingrese el numero de la entrada a eliminar: " << flush;
+            int num;
+            cin >> num;
+            cin.ignore(numeric_limits<streamsize>::max(), '\n');
+            if (num < 1 || num > (int)cuidadorHistorial.obtenerHistorial().size()) {
+                cout << "Numero invalido." << endl;
+            } else {
+                cuidadorHistorial.eliminarMemento(num - 1);
+                cout << "Entrada eliminada." << endl;
+            }
+        }
+        else if (op == 2) {
+            cuidadorHistorial.borrarHistorial();
+            cout << "Historial borrado." << endl;
+            break;
+        }
+    }
+}
+
+// -------------------- MENU PRINCIPAL --------------------
 int main() {
     cout << "========================================" << endl;
     cout << " BIENVENIDO A LA PLATAFORMA DE STREAMING" << endl;
     cout << "========================================" << endl;
 
-    string archivoCSV = "mpst_full_data.csv";
-    vector<Pelicula> peliculas = cargarPeliculas(archivoCSV);
+    BaseDeDatos* bd = BaseDeDatos::obtenerInstancia("mpst_full_data.csv");
+    vector<Pelicula>& peliculas = bd->obtenerPeliculas();
 
     cout << "\nTotal de peliculas cargadas: " << peliculas.size() << endl;
 
@@ -893,33 +999,41 @@ int main() {
         cout << "2. Ver recomendaciones" << endl;
         cout << "3. Ver 'Ver mas tarde'" << endl;
         cout << "4. Ver 'Peliculas a las que le di like'" << endl;
-        cout << "5. Salir" << endl;
+        cout << "5. Ver historial de busquedas" << endl;
+        cout << "6. Salir" << endl;
 
-        int opcionMain;
+        int op;
         while (true) {
-            cout << "Seleccione una opcion (1-5): " << flush;
-            cin >> opcionMain;
-            if (cin.fail() || opcionMain < 1 || opcionMain > 5) {
+            cout << "Seleccione una opcion (1-6): " << flush;
+            cin >> op;
+            if (cin.fail() || op < 1 || op > 6) {
                 cin.clear();
                 cin.ignore(numeric_limits<streamsize>::max(), '\n');
-                cout << "Por favor, ingrese un numero entre 1 y 5." << endl;
+                cout << "Ingrese un numero entre 1 y 6." << endl;
             } else {
                 cin.ignore(numeric_limits<streamsize>::max(), '\n');
                 break;
             }
         }
 
-        if (opcionMain == 5) {
+        if (op == 6) {
             cout << "\nSaliendo del programa. Gracias por utilizar la Plataforma de Streaming." << endl;
             break;
-        } else if (opcionMain == 1) {
+        }
+        else if (op == 1) {
             manejarBusqueda(peliculas, indiceMode1, indiceEtiqueta, gustadas, verMasTarde);
-        } else if (opcionMain == 2) {
+        } 
+        else if (op == 2) {
             manejarLista(recomendaciones, "Recomendaciones", gustadas, verMasTarde);
-        } else if (opcionMain == 3) {
+        } 
+        else if (op == 3) {
             manejarLista(verMasTarde, "Ver mas tarde", gustadas, verMasTarde);
-        } else if (opcionMain == 4) {
+        } 
+        else if (op == 4) {
             manejarLista(gustadas, "Peliculas a las que le di like", gustadas, verMasTarde);
+        } 
+        else if (op == 5) {
+            manejarHistorialBusquedas();
         }
         recomendaciones = recomendarPeliculas(peliculas, gustadas);
     }
