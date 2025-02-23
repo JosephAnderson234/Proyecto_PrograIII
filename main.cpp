@@ -10,6 +10,7 @@
 #include <limits>
 #include <future>
 #include <chrono>
+
 using namespace std;
 
 // -------------------- CONSTANTES GLOBALES --------------------
@@ -42,7 +43,6 @@ void imprimirCuadro(const string &texto, int ancho);
 void imprimirTituloJustificado(const string &titulo);
 string extraerFragmento(const string &sinopsis, const string &consulta);
 
-
 // -------------------- DECLARACIONES DE FUNCIONES DE CARGA E INDICES --------------------
 vector<Pelicula> cargarPeliculas(const string &nombreArchivo);
 unordered_map<string, set<Pelicula*>> construirIndice(const vector<Pelicula>& peliculas);
@@ -50,9 +50,7 @@ unordered_map<string, set<Pelicula*>> construirIndiceEtiquetas(const vector<Peli
 vector<Pelicula*> recomendarPeliculas(const vector<Pelicula>& peliculas, const vector<Pelicula*>& gustadas);
 
 // -------------------- DECLARACIONES DE FUNCIONES DE IMPRESION Y MENU --------------------
-
 void mostrarListaTitulos(const vector<Pelicula*>& lista);
-// Ahora, el submenú de pelicula retorna un bool: true si el usuario desea volver directamente al menu principal.
 bool submenuPelicula(Pelicula* seleccionada, vector<Pelicula*>& gustadas, vector<Pelicula*>& verMasTarde);
 void manejarLista(const vector<Pelicula*>& lista, const string &nombreLista, vector<Pelicula*>& gustadas, vector<Pelicula*>& verMasTarde);
 void manejarBusqueda(vector<Pelicula>& peliculas,
@@ -61,7 +59,6 @@ void manejarBusqueda(vector<Pelicula>& peliculas,
                     vector<Pelicula*>& gustadas,
                     vector<Pelicula*>& verMasTarde);
 void manejarHistorialBusquedas();
-
 
 // -------------------- PATRON MEMENTO: HISTORIAL DE BUSQUEDAS --------------------
 class MementoBusqueda {
@@ -120,8 +117,8 @@ class BaseDeDatos {
         vector<Pelicula>& obtenerPeliculas() {
             return peliculas;
         }
-    };
-    BaseDeDatos* BaseDeDatos::instancia = nullptr;
+};
+BaseDeDatos* BaseDeDatos::instancia = nullptr;
 
 // -------------------- FUNCIONES AUXILIARES --------------------
 // Convierte una cadena a minusculas.
@@ -206,73 +203,6 @@ string normalizarEspacios(const string &s) {
     return resultado;
 }
 
-// -------------------- FUNCION PARA CARGAR PELICULAS --------------------
-// Carga las peliculas desde un CSV (respetando registros multilinea).
-// Se separan los etiquetas usando coma como delimitador para conservar etiquetas compuestos.
-vector<Pelicula> cargarPeliculas(const string &nombreArchivo) {
-    vector<Pelicula> peliculas;
-    ifstream archivo(nombreArchivo);
-    string linea;
-    if (!archivo.is_open()) {
-        cerr << "Error al abrir el archivo." << endl;
-        return peliculas;
-    }
-    getline(archivo, linea); // Descartar encabezado.
-    while (getline(archivo, linea)) {
-        while (contarComillas(linea) % 2 != 0 && !archivo.eof()) {
-            string siguienteLinea;
-            getline(archivo, siguienteLinea);
-            linea += "\n" + siguienteLinea;
-        }
-        vector<string> columnas = parsearLineaCSV(linea);
-        if (columnas.size() < 6)
-            continue;
-        Pelicula pelicula;
-        pelicula.titulo = columnas[1];
-        pelicula.sinopsis = columnas[2];
-        {
-            // Separar la columna de etiquetas usando coma como delimitador.
-            istringstream iss(columnas[3]);
-            string etiquetas;
-            while (getline(iss, etiquetas, ',')) {
-                etiquetas = recortar(etiquetas);
-                if (!etiquetas.empty())
-                    pelicula.etiquetas.push_back(etiquetas);
-            }
-        }
-        pelicula.fuente = columnas[5]; // Fuente de la sinopsis.
-        peliculas.push_back(pelicula);
-    }
-    archivo.close();
-    return peliculas;
-}
-
-// Construye un indice invertido para busquedas por titulo y sinopsis.
-unordered_map<string, set<Pelicula*>> construirIndice(const vector<Pelicula>& peliculas) {
-    unordered_map<string, set<Pelicula*>> indice;
-    for (const auto &pelicula : peliculas) {
-        vector<string> tokensTitulo = tokenizar(pelicula.titulo);
-        vector<string> tokensSinopsis = tokenizar(pelicula.sinopsis);
-        for (const auto &palabra : tokensTitulo)
-            indice[palabra].insert(const_cast<Pelicula*>(&pelicula));
-        for (const auto &palabra : tokensSinopsis)
-            indice[palabra].insert(const_cast<Pelicula*>(&pelicula));
-    }
-    return indice;
-}
-
-// Construye un indice para busquedas por etiqueta.
-unordered_map<string, set<Pelicula*>> construirIndiceEtiquetas(const vector<Pelicula>& peliculas) {
-    unordered_map<string, set<Pelicula*>> indiceEtiquetas;
-    for (const auto &pelicula : peliculas) {
-        for (const auto &etiqueta : pelicula.etiquetas) {
-            string etiquetaLower = aMinusculas(etiqueta);
-            indiceEtiquetas[etiquetaLower].insert(const_cast<Pelicula*>(&pelicula));
-        }
-    }
-    return indiceEtiquetas;
-}
-
 // Justifica un texto en un ancho fijo y retorna un vector de lineas.
 vector<string> justificarTexto(const string &texto, int ancho) {
     istringstream iss(texto);
@@ -355,6 +285,69 @@ string extraerFragmento(const string &sinopsis, const string &consulta) {
     return snippet;
 }
 
+// -------------------- FUNCION PARA CARGAR PELICULAS --------------------
+vector<Pelicula> cargarPeliculas(const string &nombreArchivo) {
+    vector<Pelicula> peliculas;
+    ifstream archivo(nombreArchivo);
+    string linea;
+    if (!archivo.is_open()) {
+        cerr << "Error al abrir el archivo." << endl;
+        return peliculas;
+    }
+    getline(archivo, linea); // Encabezado.
+    while (getline(archivo, linea)) {
+        while (contarComillas(linea) % 2 != 0 && !archivo.eof()) {
+            string siguienteLinea;
+            getline(archivo, siguienteLinea);
+            linea += "\n" + siguienteLinea;
+        }
+        vector<string> campos = parsearLineaCSV(linea);
+        if (campos.size() < 6)
+            continue;
+        Pelicula p;
+        p.titulo = campos[1];
+        p.sinopsis = campos[2];
+        {
+            istringstream iss(campos[3]);
+            string etiqueta;
+            while(getline(iss, etiqueta, ',')) {
+                etiqueta = recortar(etiqueta);
+                if (!etiqueta.empty())
+                    p.etiquetas.push_back(etiqueta);
+            }
+        }
+        p.fuente = campos[5];
+        peliculas.push_back(p);
+    }
+    archivo.close();
+    return peliculas;
+}
+
+// Construye un indice invertido para busquedas por titulo y sinopsis.
+unordered_map<string, set<Pelicula*>> construirIndice(const vector<Pelicula>& peliculas) {
+    unordered_map<string, set<Pelicula*>> indice;
+    for (const auto &pelicula : peliculas) {
+        vector<string> tokensTitulo = tokenizar(pelicula.titulo);
+        vector<string> tokensSinopsis = tokenizar(pelicula.sinopsis);
+        for (const auto &palabra : tokensTitulo)
+            indice[palabra].insert(const_cast<Pelicula*>(&pelicula));
+        for (const auto &palabra : tokensSinopsis)
+            indice[palabra].insert(const_cast<Pelicula*>(&pelicula));
+    }
+    return indice;
+}
+
+// Construye un indice para busquedas por etiqueta.
+unordered_map<string, set<Pelicula*>> construirIndiceEtiquetas(const vector<Pelicula>& peliculas) {
+    unordered_map<string, set<Pelicula*>> indiceEtiquetas;
+    for (const auto &pelicula : peliculas) {
+        for (const auto &etiqueta : pelicula.etiquetas) {
+            string etiquetaLower = aMinusculas(etiqueta);
+            indiceEtiquetas[etiquetaLower].insert(const_cast<Pelicula*>(&pelicula));
+        }
+    }
+    return indiceEtiquetas;
+}
 
 // Genera recomendaciones basadas en los gustados.
 // Se omiten las peliculas ya gustadas y se ordenan por puntaje segun coincidencia de etiquetas.
@@ -630,6 +623,26 @@ public:
         return resultados;
     }
 };
+
+
+// -------------------- PATRON OBSERVER: OBSERVADOR DE RECOMENDACIONES --------------------
+class Observador {
+    public:
+        virtual void actualizar() = 0;
+    };
+    
+    class ObservadorRecomendacion : public Observador {
+    private:
+        vector<Pelicula*>& gustadas;
+        vector<Pelicula*>& recomendadas;
+        vector<Pelicula>& peliculas;
+    public:
+        ObservadorRecomendacion(vector<Pelicula*>& g, vector<Pelicula*>& r, vector<Pelicula>& p)
+          : gustadas(g), recomendadas(r), peliculas(p) {}
+        void actualizar() override {
+            recomendadas = recomendarPeliculas(peliculas, gustadas);
+        }
+    };
 
 // -------------------- VARIABLE GLOBAL PARA ARBOL DE SUFIJOS --------------------
 ArbolSufijosUkkonen* arbolSufijosGlobal = nullptr;
@@ -978,7 +991,7 @@ int main() {
     vector<Pelicula*> gustadas;
     vector<Pelicula*> verMasTarde;
     vector<Pelicula*> recomendaciones = recomendarPeliculas(peliculas, gustadas);
-
+    
     cout << "\n=== Inicio ===" << endl;
     if (!verMasTarde.empty()) {
         cout << "\nPeliculas en 'Ver mas tarde':" << endl;
