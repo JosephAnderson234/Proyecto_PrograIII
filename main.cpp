@@ -10,7 +10,6 @@
 #include <limits>
 #include <future>
 #include <chrono>
-#include <functional>
 
 using namespace std;
 
