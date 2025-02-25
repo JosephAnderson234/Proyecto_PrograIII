@@ -10,6 +10,7 @@
 #include <limits>
 #include <future>
 #include <chrono>
+#include <functional>
 
 using namespace std;
 
@@ -54,15 +55,15 @@ void mostrarListaTitulos(const vector<Pelicula*>& lista);
 bool submenuPelicula(Pelicula* seleccionada, vector<Pelicula*>& gustadas, vector<Pelicula*>& verMasTarde);
 void manejarLista(const vector<Pelicula*>& lista, const string &nombreLista, vector<Pelicula*>& gustadas, vector<Pelicula*>& verMasTarde);
 void manejarBusqueda(vector<Pelicula>& peliculas,
-                    unordered_map<string, set<Pelicula*>> &indiceMode1,
-                    unordered_map<string, set<Pelicula*>> &indiceEtiqueta,
-                    vector<Pelicula*>& gustadas,
-                    vector<Pelicula*>& verMasTarde);
+                     unordered_map<string, set<Pelicula*>> &indiceModo1,
+                     unordered_map<string, set<Pelicula*>> &indiceEtiqueta,
+                     vector<Pelicula*>& gustadas,
+                     vector<Pelicula*>& verMasTarde);
 void manejarHistorialBusquedas();
 
 // -------------------- PATRON MEMENTO: HISTORIAL DE BUSQUEDAS --------------------
 class MementoBusqueda {
-    public:
+public:
     string consulta;
     int modoBusqueda;
     MementoBusqueda(const string &c, int m) : consulta(c), modoBusqueda(m) {}
@@ -100,35 +101,37 @@ public:
 
 CuidadorHistorialBusquedas cuidadorHistorial;
 
-// -------------------- PATRON SINGLETON: BASE DE DATOS --------------------
+// -------------------- PATRON SINGLETON: BASE DE DATOS (TEMPLATE) --------------------
+// Ahora, la clase BaseDeDatos es genérica y puede usarse para cualquier tipo T.
+template<typename T>
 class BaseDeDatos {
-    private:
-        static BaseDeDatos* instancia;
-        vector<Pelicula> peliculas;
-        BaseDeDatos(const string &archivo) {
-            peliculas = cargarPeliculas(archivo);
-        }
-    public:
-        static BaseDeDatos* obtenerInstancia(const string &archivo) {
-            if (!instancia)
-                instancia = new BaseDeDatos(archivo);
-            return instancia;
-        }
-        vector<Pelicula>& obtenerPeliculas() {
-            return peliculas;
-        }
+private:
+    static BaseDeDatos<T>* instancia;
+    vector<T> datos;
+    BaseDeDatos(const string &archivo, vector<T> (*cargarFuncion)(const string &)) {
+        datos = cargarFuncion(archivo);
+    }
+public:
+    static BaseDeDatos<T>* obtenerInstancia(const string &archivo, vector<T> (*cargarFuncion)(const string &)) {
+        if (!instancia)
+            instancia = new BaseDeDatos<T>(archivo, cargarFuncion);
+        return instancia;
+    }
+    vector<T>& obtenerDatos() {
+        return datos;
+    }
 };
-BaseDeDatos* BaseDeDatos::instancia = nullptr;
+
+template<typename T>
+BaseDeDatos<T>* BaseDeDatos<T>::instancia = nullptr;
 
 // -------------------- FUNCIONES AUXILIARES --------------------
-// Convierte una cadena a minusculas.
 string aMinusculas(const string &s) {
-    string out = s;
-    transform(out.begin(), out.end(), out.begin(), ::tolower);
-    return out;
+    string salida = s;
+    transform(salida.begin(), salida.end(), salida.begin(), ::tolower);
+    return salida;
 }
 
-// Elimina espacios y comillas al inicio y al final.
 string recortar(const string &s) {
     size_t inicio = s.find_first_not_of(" \"");
     size_t fin = s.find_last_not_of(" \"");
@@ -137,7 +140,6 @@ string recortar(const string &s) {
     return s.substr(inicio, fin - inicio + 1);
 }
 
-// Cuenta el numero de comillas (") en una cadena.
 int contarComillas(const string &s) {
     int cuenta = 0;
     for (char c : s)
@@ -146,7 +148,6 @@ int contarComillas(const string &s) {
     return cuenta;
 }
 
-// Parsea una linea de CSV considerando comillas.
 vector<string> parsearLineaCSV(const string &linea) {
     vector<string> resultado;
     string campo;
@@ -166,21 +167,18 @@ vector<string> parsearLineaCSV(const string &linea) {
     return resultado;
 }
 
-// Tokeniza una cadena en palabras.
-// Se conservan el guion '-' y, ahora, los caracteres ':' y '/' cuando esten entre digitos.
 vector<string> tokenizar(const string &s) {
     vector<string> tokens;
     string token;
     for (size_t i = 0; i < s.size(); i++) {
         char c = s[i];
         if ((c == ':' || c == '/') && i > 0 && i < s.size()-1 &&
-            isdigit(s[i-1]) && isdigit(s[i+1])) {
+            isdigit(s[i-1]) && isdigit(s[i+1]))
             token.push_back(c);
-        }
-        else if (isalnum(static_cast<unsigned char>(c)) || c == '-') {
+        else if (isalnum(static_cast<unsigned char>(c)) || c == '-')
             token.push_back(tolower(c));
-        } else {
-            if (!token.empty()) {
+        else {
+            if (!token.empty()){
                 tokens.push_back(token);
                 token.clear();
             }
@@ -191,19 +189,17 @@ vector<string> tokenizar(const string &s) {
     return tokens;
 }
 
-// Normaliza los espacios en una cadena: deja solo un espacio entre palabras.
 string normalizarEspacios(const string &s) {
     istringstream iss(s);
-    string palabra, resultado;
+    string palabra, salida;
     while (iss >> palabra) {
-        if (!resultado.empty())
-            resultado += " ";
-        resultado += palabra;
+        if (!salida.empty())
+            salida += " ";
+        salida += palabra;
     }
-    return resultado;
+    return salida;
 }
 
-// Justifica un texto en un ancho fijo y retorna un vector de lineas.
 vector<string> justificarTexto(const string &texto, int ancho) {
     istringstream iss(texto);
     vector<string> palabras;
@@ -211,18 +207,16 @@ vector<string> justificarTexto(const string &texto, int ancho) {
     while (iss >> palabra)
         palabras.push_back(palabra);
     vector<string> lineas;
-    int n = palabras.size();
-    int i = 0;
-    while (i < n) {
-        int j = i;
-        int suma = palabras[j].size();
-        while (j + 1 < n && suma + 1 + palabras[j+1].size() <= ancho) {
+    int n = palabras.size(), i = 0;
+    while(i < n) {
+        int j = i, suma = palabras[j].size();
+        while(j + 1 < n && suma + 1 + palabras[j+1].size() <= ancho) {
             j++;
             suma += 1 + palabras[j].size();
         }
         int numPalabras = j - i + 1;
         string linea;
-        if (numPalabras == 1 || j == n - 1) {
+        if(numPalabras == 1 || j == n - 1) {
             linea = palabras[i];
             for (int k = i + 1; k <= j; k++)
                 linea += " " + palabras[k];
@@ -233,12 +227,11 @@ vector<string> justificarTexto(const string &texto, int ancho) {
             for (int k = i; k <= j; k++)
                 totalLetras += palabras[k].size();
             int totalEspacios = ancho - totalLetras;
-            int gaps = numPalabras - 1;
-            int espacioBase = totalEspacios / gaps;
-            int extra = totalEspacios % gaps;
+            int espaciosBase = totalEspacios / (numPalabras - 1);
+            int extra = totalEspacios % (numPalabras - 1);
             for (int k = i; k < j; k++) {
                 linea += palabras[k];
-                int espacios = espacioBase + ((k - i) < extra ? 1 : 0);
+                int espacios = espaciosBase + ((k - i) < extra ? 1 : 0);
                 linea += string(espacios, ' ');
             }
             linea += palabras[j];
@@ -249,23 +242,20 @@ vector<string> justificarTexto(const string &texto, int ancho) {
     return lineas;
 }
 
-// Imprime un recuadro con el texto justificado en un ancho fijo.
 void imprimirCuadro(const string &texto, int ancho) {
     vector<string> lineas = justificarTexto(texto, ancho);
     cout << "+" << string(ancho, '-') << "+" << endl;
-    for (const auto &linea : lineas)
+    for (auto &linea : lineas)
         cout << "|" << linea << "|" << endl;
     cout << "+" << string(ancho, '-') << "+" << endl;
 }
 
-// Imprime un titulo justificado en un ancho fijo (sin recuadro).
 void imprimirTituloJustificado(const string &titulo) {
     vector<string> lineas = justificarTexto(titulo, ANCHO_TITULO);
-    for (const auto &linea : lineas)
+    for (auto &linea : lineas)
         cout << linea << endl;
 }
 
-// Extrae un snippet (10 palabras) de la sinopsis, a partir de la primera ocurrencia de la consulta.
 string extraerFragmento(const string &sinopsis, const string &consulta) {
     string sinopsisLower = aMinusculas(sinopsis);
     string consultaLower = aMinusculas(consulta);
@@ -274,15 +264,15 @@ string extraerFragmento(const string &sinopsis, const string &consulta) {
         return "";
     string sub = sinopsis.substr(pos);
     istringstream iss(sub);
-    string snippet, palabra;
+    string fragmento, palabra;
     int cuenta = 0;
     while (iss >> palabra && cuenta < 10) {
-         snippet += palabra + " ";
+         fragmento += palabra + " ";
          cuenta++;
     }
-    if (!snippet.empty())
-         snippet.pop_back();
-    return snippet;
+    if (!fragmento.empty())
+         fragmento.pop_back();
+    return fragmento;
 }
 
 // -------------------- FUNCION PARA CARGAR PELICULAS --------------------
@@ -323,25 +313,23 @@ vector<Pelicula> cargarPeliculas(const string &nombreArchivo) {
     return peliculas;
 }
 
-// Construye un indice invertido para busquedas por titulo y sinopsis.
 unordered_map<string, set<Pelicula*>> construirIndice(const vector<Pelicula>& peliculas) {
     unordered_map<string, set<Pelicula*>> indice;
-    for (const auto &pelicula : peliculas) {
+    for (auto &pelicula : peliculas) {
         vector<string> tokensTitulo = tokenizar(pelicula.titulo);
         vector<string> tokensSinopsis = tokenizar(pelicula.sinopsis);
-        for (const auto &palabra : tokensTitulo)
+        for (auto &palabra : tokensTitulo)
             indice[palabra].insert(const_cast<Pelicula*>(&pelicula));
-        for (const auto &palabra : tokensSinopsis)
+        for (auto &palabra : tokensSinopsis)
             indice[palabra].insert(const_cast<Pelicula*>(&pelicula));
     }
     return indice;
 }
 
-// Construye un indice para busquedas por etiqueta.
 unordered_map<string, set<Pelicula*>> construirIndiceEtiquetas(const vector<Pelicula>& peliculas) {
     unordered_map<string, set<Pelicula*>> indiceEtiquetas;
-    for (const auto &pelicula : peliculas) {
-        for (const auto &etiqueta : pelicula.etiquetas) {
+    for (auto &pelicula : peliculas) {
+        for (auto &etiqueta : pelicula.etiquetas) {
             string etiquetaLower = aMinusculas(etiqueta);
             indiceEtiquetas[etiquetaLower].insert(const_cast<Pelicula*>(&pelicula));
         }
@@ -349,8 +337,6 @@ unordered_map<string, set<Pelicula*>> construirIndiceEtiquetas(const vector<Peli
     return indiceEtiquetas;
 }
 
-// Genera recomendaciones basadas en los gustados.
-// Se omiten las peliculas ya gustadas y se ordenan por puntaje segun coincidencia de etiquetas.
 vector<Pelicula*> recomendarPeliculas(const vector<Pelicula>& peliculas, const vector<Pelicula*>& gustadas) {
     set<string> etiquetasGustadas;
     for (auto pelicula : gustadas)
@@ -381,11 +367,10 @@ vector<Pelicula*> recomendarPeliculas(const vector<Pelicula>& peliculas, const v
     return recomendadas;
 }
 
-
 // -------------------- ARBOL DE SUFIJOS CON ALGORITMO DE UKKONEN --------------------
 // Nota: Esta implementacion es una version simplificada.
 class ArbolSufijosUkkonen {
-    public:
+public:
     struct Nodo {
         unordered_map<char, Nodo*> hijos;
         int inicio;
@@ -624,41 +609,36 @@ public:
     }
 };
 
-
 // -------------------- PATRON OBSERVER: OBSERVADOR DE RECOMENDACIONES --------------------
 class Observador {
-    public:
-        virtual void actualizar() = 0;
-    };
-    
-    class ObservadorRecomendacion : public Observador {
-    private:
-        vector<Pelicula*>& gustadas;
-        vector<Pelicula*>& recomendadas;
-        vector<Pelicula>& peliculas;
-    public:
-        ObservadorRecomendacion(vector<Pelicula*>& g, vector<Pelicula*>& r, vector<Pelicula>& p)
-          : gustadas(g), recomendadas(r), peliculas(p) {}
-        void actualizar() override {
-            recomendadas = recomendarPeliculas(peliculas, gustadas);
-        }
-    };
+public:
+    virtual void actualizar() = 0;
+};
+
+class ObservadorRecomendacion : public Observador {
+private:
+    vector<Pelicula*>& gustadas;
+    vector<Pelicula*>& recomendadas;
+    vector<Pelicula>& peliculas;
+public:
+    ObservadorRecomendacion(vector<Pelicula*>& g, vector<Pelicula*>& r, vector<Pelicula>& p)
+      : gustadas(g), recomendadas(r), peliculas(p) {}
+    void actualizar() override {
+        recomendadas = recomendarPeliculas(peliculas, gustadas);
+    }
+};
 
 // -------------------- VARIABLE GLOBAL PARA ARBOL DE SUFIJOS --------------------
 ArbolSufijosUkkonen* arbolSufijosGlobal = nullptr;
 
-// Muestra solo los titulos de una lista, justificados.
+// -------------------- FUNCIONES DE IMPRESION Y MENU --------------------
 void mostrarListaTitulos(const vector<Pelicula*>& lista) {
-    for (size_t i = 0; i < lista.size(); i++) {
+    for (size_t i = 0; i < lista.size(); i++){
         cout << i + 1 << ". " << endl;
         imprimirTituloJustificado(lista[i]->titulo);
     }
 }
 
-// Submenu para la pelicula seleccionada.
-// Se imprime el titulo, los etiquetas (separados por coma), la sinopsis en recuadro y la fuente.
-// Se agrego la opcion 4 para volver directamente al menu principal.
-// La funcion retorna true si el usuario eligio volver al menu principal, false en caso contrario.
 bool submenuPelicula(Pelicula* seleccionada, vector<Pelicula*>& gustadas, vector<Pelicula*>& verMasTarde) {
     while (true) {
         cout << "\n========================================" << endl;
@@ -720,38 +700,33 @@ bool submenuPelicula(Pelicula* seleccionada, vector<Pelicula*>& gustadas, vector
     }
 }
 
-// Funcion para manejar listas (como "Ver mas tarde", "gustadas", "Recomendaciones").
-// Se muestran solo los titulos justificados y, al seleccionar una pelicula, se abre el submenu.
 void manejarLista(const vector<Pelicula*>& lista, const string &nombreLista, vector<Pelicula*>& gustadas, vector<Pelicula*>& verMasTarde) {
-    if (lista.empty()) {
+    if (lista.empty()){
         cout << "\nNo hay peliculas en " << nombreLista << "." << endl;
         return;
     }
     cout << "\n--- " << nombreLista << " (solo titulos) ---" << endl;
     mostrarListaTitulos(lista);
-    int indiceSel;
+    int indice;
     while (true) {
         cout << "Seleccione el numero de la pelicula para ver detalles (0 para regresar): " << flush;
-        cin >> indiceSel;
-        if (cin.fail() || indiceSel < 0 || indiceSel > (int)lista.size()) {
+        cin >> indice;
+        if (cin.fail() || indice < 0 || indice > (int)lista.size()){
             cin.clear();
             cin.ignore(numeric_limits<streamsize>::max(), '\n');
-            cout << "Por favor, ingrese un numero valido." << endl;
+            cout << "Ingrese un numero valido." << endl;
         } else {
             cin.ignore(numeric_limits<streamsize>::max(), '\n');
             break;
         }
     }
-    if (indiceSel == 0)
+    if (indice == 0)
         return;
-    Pelicula* seleccionada = lista[indiceSel - 1];
-    // Si el submenú retorna true, se desea volver directamente al menú principal.
-    bool volverAlMenuPrincipal = submenuPelicula(seleccionada, gustadas, verMasTarde);
-    if (volverAlMenuPrincipal)
+    bool volver = submenuPelicula(lista[indice - 1], gustadas, verMasTarde);
+    if (volver)
         return;
 }
 
-// -------------------- PATRON STRATEGY: MANEJO DE BUSQUEDA --------------------
 void manejarBusqueda(vector<Pelicula>& peliculas,
                      unordered_map<string, set<Pelicula*>> &indiceModo1,
                      unordered_map<string, set<Pelicula*>> &indiceEtiqueta,
@@ -931,7 +906,6 @@ void manejarBusqueda(vector<Pelicula>& peliculas,
     }
 }
 
-// -------------------- MANEJO DEL HISTORIAL DE BUSQUEDAS --------------------
 void manejarHistorialBusquedas() {
     while (true) {
         cuidadorHistorial.mostrarHistorial();
@@ -980,30 +954,47 @@ int main() {
     cout << " BIENVENIDO A LA PLATAFORMA DE STREAMING" << endl;
     cout << "========================================" << endl;
 
-    BaseDeDatos* bd = BaseDeDatos::obtenerInstancia("mpst_full_data.csv");
-    vector<Pelicula>& peliculas = bd->obtenerPeliculas();
+    // Cargar base de datos (Singleton Template)
+    BaseDeDatos<Pelicula>* bd = BaseDeDatos<Pelicula>::obtenerInstancia("mpst_full_data.csv", cargarPeliculas);
+    vector<Pelicula>& peliculas = bd->obtenerDatos();
 
     cout << "\nTotal de peliculas cargadas: " << peliculas.size() << endl;
 
-    auto indiceMode1 = construirIndice(peliculas);    // Para busquedas por titulo y sinopsis.
-    auto indiceEtiqueta = construirIndiceEtiquetas(peliculas);    // Para busquedas por etiqueta.
+    auto indiceModo1 = construirIndice(peliculas);
+    auto indiceEtiqueta = construirIndiceEtiquetas(peliculas);
 
     vector<Pelicula*> gustadas;
     vector<Pelicula*> verMasTarde;
-    vector<Pelicula*> recomendaciones = recomendarPeliculas(peliculas, gustadas);
-    
+    vector<Pelicula*> recomendadas = recomendarPeliculas(peliculas, gustadas);
+
+    // Crear observador de recomendaciones (Observer)
+    ObservadorRecomendacion obsRecomendacion(gustadas, recomendadas, peliculas);
+
+    // Construir el texto global y mapeo de posiciones
+    string textoGlobal = "";
+    vector<int> mapeoPos;
+    for (int i = 0; i < peliculas.size(); i++) {
+        string textoPelicula = aMinusculas(peliculas[i].titulo) + " " + aMinusculas(peliculas[i].sinopsis) + "#";
+        textoGlobal += textoPelicula;
+        for (int j = 0; j < textoPelicula.size(); j++) {
+            mapeoPos.push_back(i);
+        }
+    }
+    // Construir el arbol de sufijos usando Ukkonen
+    arbolSufijosGlobal = new ArbolSufijosUkkonen(textoGlobal, mapeoPos);
+
     cout << "\n=== Inicio ===" << endl;
-    if (!verMasTarde.empty()) {
+    if (verMasTarde.empty())
+        cout << "\nNo hay peliculas en 'Ver mas tarde'." << endl;
+    else {
         cout << "\nPeliculas en 'Ver mas tarde':" << endl;
         mostrarListaTitulos(verMasTarde);
-    } else {
-        cout << "\nNo hay peliculas en 'Ver mas tarde'." << endl;
     }
-    if (!recomendaciones.empty()) {
-        cout << "\nRecomendaciones:" << endl;
-        mostrarListaTitulos(recomendaciones);
-    } else {
+    if (recomendadas.empty())
         cout << "\nNo hay recomendaciones (aun no has dado Like a ninguna pelicula)." << endl;
+    else {
+        cout << "\nRecomendaciones:" << endl;
+        mostrarListaTitulos(recomendadas);
     }
 
     while (true) {
@@ -1011,10 +1002,9 @@ int main() {
         cout << "1. Buscar peliculas" << endl;
         cout << "2. Ver recomendaciones" << endl;
         cout << "3. Ver 'Ver mas tarde'" << endl;
-        cout << "4. Ver 'Peliculas a las que le di like'" << endl;
+        cout << "4. Ver 'Peliculas a las que di Like'" << endl;
         cout << "5. Ver historial de busquedas" << endl;
         cout << "6. Salir" << endl;
-
         int op;
         while (true) {
             cout << "Seleccione una opcion (1-6): " << flush;
@@ -1028,29 +1018,28 @@ int main() {
                 break;
             }
         }
-
         if (op == 6) {
             cout << "\nSaliendo del programa. Gracias por utilizar la Plataforma de Streaming." << endl;
             break;
         }
         else if (op == 1) {
-            manejarBusqueda(peliculas, indiceMode1, indiceEtiqueta, gustadas, verMasTarde);
-        } 
+            manejarBusqueda(peliculas, indiceModo1, indiceEtiqueta, gustadas, verMasTarde);
+        }
         else if (op == 2) {
-            manejarLista(recomendaciones, "Recomendaciones", gustadas, verMasTarde);
-        } 
+            manejarLista(recomendadas, "Recomendaciones", gustadas, verMasTarde);
+        }
         else if (op == 3) {
             manejarLista(verMasTarde, "Ver mas tarde", gustadas, verMasTarde);
-        } 
+        }
         else if (op == 4) {
-            manejarLista(gustadas, "Peliculas a las que le di like", gustadas, verMasTarde);
-        } 
+            manejarLista(gustadas, "Peliculas a las que di Like", gustadas, verMasTarde);
+        }
         else if (op == 5) {
             manejarHistorialBusquedas();
         }
-        recomendaciones = recomendarPeliculas(peliculas, gustadas);
+        // Notificar al observador para actualizar recomendaciones
+        obsRecomendacion.actualizar();
     }
-
     cout << "\nPrograma finalizado." << endl;
     return 0;
 }
