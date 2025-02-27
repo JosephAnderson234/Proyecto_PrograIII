@@ -1,5 +1,5 @@
 # Proyecto Buscador de Películas
-
+### El link del video del proyecto se encuentra al final de este README
 ## Descripcion General
 
 Este proyecto es una plataforma de streaming desarrollada en C++ que permite a los usuarios buscar películas, gestionar listas personalizadas (como “Ver más tarde” y “Películas a las que di Like”), y obtener recomendaciones basadas en sus gustos. Para lograr una experiencia fluida y eficiente, se han implementado diversas técnicas y patrones de diseño, entre ellos un árbol de sufijos (con algoritmo de Ukkonen), Singleton, Observer, Memento y Strategy. Además, se utiliza programación concurrente para acelerar ciertos procesos de búsqueda.
@@ -83,3 +83,73 @@ Esta estructura no solo mejora la rapidez en las búsquedas, sino que también p
     - Clases: **EstrategiaBusqueda**, **EstrategiaTituloSinopsis** y **EstrategiaEtiqueta**
     - *Proposito:* Ofrecer múltiples métodos de búsqueda (por contenido textual o por etiquetas) que pueden cambiarse o extenderse sin alterar la lógica del programa.
 
+## Programación Concurrente
+
+### ¿Dónde se utiliza?
+
+- **Búsqueda por Etiquetas:** En la implementación de la estrategia de búsqueda por etiquetas se emplea async para dividir la tarea entre varios hilos. Esto se hace para:
+    - Mejorar el rendimiento en búsquedas sobre grandes volúmenes de datos.
+    - Procesar bloques de películas en paralelo (definidos por la constante **NUM_HILOS**).
+
+### ¿Por qué y cómo?
+
+- **Por qué:** La búsqueda por etiquetas puede ser costosa en términos computacionales cuando el dataset es extenso. Al dividir la carga entre varios hilos, se reduce el tiempo total de procesamiento.
+- **Cómo:** 
+    - Se calcula el tamaño de bloque dividiendo el total de películas por el número de hilos.
+    - Cada hilo procesa su bloque y devuelve un conjunto parcial de resultados mediante **future**.
+    - Los resultados parciales se combinan y se ordenan según la relevancia (puntaje).
+
+**Tabla 1:** Comparación de tiempos al usar distintos números de hilos en la “**Búsqueda por Etiquetas**”
+
+Se buscó la película: “**Kung Fu Panda**” por sus etiquetas: “**comedy, cute, violence, clever, good versus evil, flashback, absurd, action, entertaining**”
+
+| **Número de hilos**  | **Tiempo** |
+| -------- | ------- |
+| 1  | 0.0192272 segundos |
+| 2 | 0.0180095 segundos |
+| 4 **(ideal)-Utilizado en la versión final del código**    | 0.0094404 segundos    |
+| 8 | 0.0086066 segundos. |
+
+**Búsqueda por Título y Sinopsis:** Aunque es posible paralelizarla, se optó por no hacerlo porque el árbol de sufijos ya optimiza significativamente la búsqueda, evitando complicaciones de sincronización y reduciendo beneficios adicionales.
+
+## Requerimientos del Sistema
+
+### Hardware Recomendado
+
+- **Procesador:** Los CPU recomendados minimo son; para Windows y Linux Intel una I5 y para Ryzen es recomendado una Rizen 5; para macOS es recomendado una M1 (mínimo 2 núcleos, 4 núcleos o más recomendado para aprovechar la concurrencia).
+- **Memoria RAM:**  8 GB o más para grandes volúmenes de datos.
+- **Almacenamiento:** Espacio suficiente para almacenar el archivo CSV y cualquier archivo de salida.
+
+### Software
+
+- **Sistema Operativo:** Linux, Windows o macOS.
+
+- **IDE y Herramientas de Desarrollo:**
+    - **CLion** (recomendado, versión 2021.3 o superior) o cualquier otro IDE compatible con C++.
+    - **Visual Code Studio** C++ version 1.23.6, compiler g++
+    - Compilador compatible con C++11 (o superior), como GCC (v9.0+), Clang o MSVC.
+
+## Bibliografía y Recursos Recomendados
+
+- MIT OpenCourseWare, Erik Demaine, 2012. [MIT OpenCourseWare 16. Strings](https://www.youtube.com/watch?v=NinWEPPrkDQ).
+- Wikipedia contributors. (2025, 24 enero). [Wikipedia Suffix tree](https://en.wikipedia.org/wiki/Suffix_tree)
+- Ukkonen, E. (1995), 14(3), 249-260. [On-line construction of suffix trees. Algorithmica](https://doi.org/10.1007/bf01206331)
+
+## Interfaz principal del programa
+
+Una vez compilado, se puede ejecutar el programa desde la terminal. El menú principal ofrece las siguientes opciones:
+
+1. Buscar películas.
+2. Ver recomendaciones.
+3. Ver lista de “Ver más tarde”.
+4. Ver películas a las que se dio “Like”.
+5. Ver historial de búsquedas.
+6. Salir del programa.
+
+## Conclusiones
+
+Este proyecto demuestra el uso combinado de algoritmos avanzados, patrones de diseño y programación concurrente para crear una plataforma eficiente y modular. La integración del árbol de sufijos permite búsquedas rápidas en grandes volúmenes de texto, mientras que los patrones como Singleton, Observer, Memento y Strategy facilitan un diseño robusto y flexible.
+Por último, en caso estés interesado en ampliar o modificar el comportamiento del sistema, lo más recomendado sería explorar en detalle cada uno de estos patrones y técnicas usadas en el programa, y dicho sea de paso, consultar la bibliografía adjunta para una mayor comprensión.
+
+
+# Link del video (solo admite a personas que pertenezcan a la institución de UTEC): https://drive.google.com/drive/folders/1vyGaaT1sVQD2-Le7CsoUV6qiUdd3PI47?usp=sharing
