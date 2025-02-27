@@ -1,5 +1,10 @@
-# Proyecto Buscador de Películas
+# Programación III: Proyecto Final (2025-0)
 ### El link del video del proyecto se encuentra al final de este README
+## Integrantes:
+- **Juan David Velo Poma**
+- **Joseph Anderson Cose Rojas**
+- **Mauricio Gabriel Gonzalez Kremer**
+
 ## Descripcion General
 
 Este proyecto es una plataforma de streaming desarrollada en C++ que permite a los usuarios buscar películas, gestionar listas personalizadas (como “Ver más tarde” y “Películas a las que di Like”), y obtener recomendaciones basadas en sus gustos. Para lograr una experiencia fluida y eficiente, se han implementado diversas técnicas y patrones de diseño, entre ellos un árbol de sufijos (con algoritmo de Ukkonen), Singleton, Observer, Memento y Strategy. Además, se utiliza programación concurrente para acelerar ciertos procesos de búsqueda.
