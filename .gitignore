@@ -2,6 +2,9 @@
 # Prerequisites
 *.d
 
+#some c++ depuring
+test.cpp
+
 # Compiled Object files
 *.slo
 *.lo
